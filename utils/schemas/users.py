@@ -1,6 +1,6 @@
-table_name = "users"
+table_name = "Users"
 exclude_from_indexes = ((
-    "extras"
+    "extras", "password"
 ))
 json_fields = [
     "extras"

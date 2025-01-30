@@ -1,4 +1,4 @@
-table_name = "routes"
+table_name = "Routes"
 exclude_from_indexes = ((
     "paths",
     "checkpoints"

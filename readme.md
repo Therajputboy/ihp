@@ -187,3 +187,5 @@ assign it again to a new driver or the same driver with proper date and time
     }
   ]
 }
+
+# Google Maps API key

@@ -1,0 +1,17 @@
+instance_class: F1
+runtime: python39
+entrypoint: gunicorn -b :8080 app:app
+
+handlers:
+- url: /v2/app/.*
+  secure: always
+  redirect_http_response_code: 301
+  script: auto
+
+inbound_services:
+  - warmup
+
+automatic_scaling:
+  min_idle_instances: 1
+  max_pending_latency: 4s
+  target_cpu_utilization: 0.7

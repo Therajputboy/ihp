@@ -6,7 +6,6 @@ from google.cloud import datastore
 from datetime import datetime
 from utils.memcache import Memcache
 from utils import globalconstants
-# from utils.db_schemas import order_list, user_credentials, end_users,orders
 from utils.exceptionlogging import ExceptionLogging
 
 datastore_client = datastore.Client()
@@ -410,8 +409,6 @@ def create_memcached(table_name, key_name, obj, exclusions, json_fields):
 
 @measuredb_latency
 def create(table_name, key_name, obj, exclusions, json_fields, other_fields={}, by_transaction=False):
-    if table_name in [order_list.table_name, user_credentials.table_name, end_users.table_name,orders.table_name]:
-        obj["modified_timestamp"] = datetime.utcnow()
     if key_name is None:
         db_key = datastore_client.key(table_name)
     else:
@@ -434,8 +431,6 @@ def create(table_name, key_name, obj, exclusions, json_fields, other_fields={}, 
 def multi_save(table_name, key_name, objects_list, exclusions, json_fields, other_fields={}, by_transaction=False):
     new_objects_list = []
     for obj in objects_list:
-        if table_name in [order_list.table_name, user_credentials.table_name, end_users.table_name,orders.table_name]:
-            obj["modified_timestamp"] = datetime.utcnow()
         db_key = None
         if key_name:
             db_key = datastore_client.key(table_name, obj[key_name])
@@ -477,16 +472,11 @@ def multi_update_pasedvalue(table_name, key_name, objects_list, exclusions, json
 
 @measuredb_latency
 def multi_save_raw(objects_list):
-    for obj in objects_list:
-        if obj.kind in [order_list.table_name, user_credentials.table_name, end_users.table_name,orders.table_name]:
-            obj.update({"modified_timestamp": datetime.utcnow()})
     datastore_client.put_multi(objects_list)
 
 
 @measuredb_latency
 def save_raw(obj):
-    if obj.kind in [order_list.table_name, user_credentials.table_name, end_users.table_name,orders.table_name]:
-        obj.update({"modified_timestamp": datetime.utcnow()})
     datastore_client.put(obj)
 
 
