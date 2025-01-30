@@ -21,8 +21,8 @@ redis_config = {
 }
 redis_host, redis_port, redis_client = None, None, None
 
-redis_host = redis_config[os.environ['project']]["REDISHOST"]
-redis_port = redis_config[os.environ['project']]["REDISPORT"]
+redis_host = redis_config[os.environ['ENV']]["REDISHOST"]
+redis_port = redis_config[os.environ['ENV']]["REDISPORT"]
 
 if "SMARTQ_LOCAL_DEV" in os.environ:
     if os.environ['SMARTQ_LOCAL_DEV'] == "true":

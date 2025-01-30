@@ -77,7 +77,7 @@ assign it again to a new driver or the same driver with proper date and time
       "is_primary_key": true
     },
     {
-      "name": "Name",
+      "name": "route_name",
       "type": "String"
     },
     {
@@ -188,4 +188,26 @@ assign it again to a new driver or the same driver with proper date and time
   ]
 }
 
+# Driver Routes
+{
+  "routeid": "",
+  "driverid": "",
+  "created_at": "",
+  "statushistory": [],
+  "status": "",
+  "travelled_path": ["key~0", "key~1"]
+}
+
+#DriverTravelledPath
+{
+  "key": "DriverRouteKey~0",
+  "coordinates": [
+    {
+      "id": "yyyymmddHHMMSS~{i}",
+      "lan": "",
+      "lon": ""
+    }
+  ],
+  "checkpoints_completed": ["checkpointid"]
+}
 # Google Maps API key

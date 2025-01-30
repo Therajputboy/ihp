@@ -7,5 +7,6 @@ def upload_file_to_gcs(file, bucket_name):
     bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(file.filename)
     blob.upload_from_file(file)
-    signed_url = blob.generate_signed_url(expiration=timedelta(days=1))
-    return signed_url
+    # signed_url = blob.generate_signed_url(expiration=timedelta(days=1))
+    blob.make_public()
+    return blob.public_url
