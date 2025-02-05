@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import pytz
 from utils import db
 from utils.schemas import users, routes as route_table, marked_routes, driver_routes
-import uuid
+import uuid, json
 
 bp_route = Blueprint('bp_route', __name__)
 
@@ -74,22 +74,22 @@ def assign_route():
             raise Exception("Route does not exist.")
         assigned_to = data.get('assigned_to', {})
         assigning_role = assigned_to.get('role', None)
-        member = assigned_to.get('member', None)
+        memberid = assigned_to.get('member', None)
         status = "scheduled"
         if not all([route_id, assigned_to]):
             raise Exception("Route id and member id are required.")
-        member = db.get(users.table_name, member, users.json_fields)
+        member = db.get(users.table_name, memberid, users.json_fields)
         if not member:
             raise Exception("Member does not exist.")
         
         if assigning_role == 'marker':
-            if route['status'] != 'created':
-                raise Exception("Route is already Marked.")
+            if route['status'] not in  ['created', 'scheduled']:
+                raise Exception("Marker already assigned.")
             
             route.update({
                 "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
                 "status": status,
-                "markerid": member,
+                "markerid": memberid,
                 "assigned_to": "marker"
             })
             db.create(
@@ -101,17 +101,17 @@ def assign_route():
             )
         elif assigning_role == 'driver':
             if route['status'] != 'completed':
-                raise Exception(f"Route is already assigned to {route.get("recent_driver", "")}.")
+                raise Exception(f'Route is already assigned to {route.get("recent_driver", "")}.')
             route.update({
                 "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
                 "status": status,
-                "recent_driver": member,
+                "recent_driver": memberid,
                 "assigned_to": "driver"
             })
             statushistory = [status + "@" + datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d %H:%M:%S")]
             driver_route = {
                 "route_id": route_id,
-                "driverid": member,
+                "driverid": memberid,
                 "status": status,
                 "created_at": datetime.now(pytz.timezone('Asia/Kolkata')),
                 "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
@@ -146,14 +146,14 @@ def list_routes():
         user = request.user
         role = user['role']
         if role == 'admin':
-            routes = db.get_all(route_table.table_name, route_table.json_fields), order=["-created_at"]
+            routes = db.get_all(route_table.table_name, route_table.json_fields, order=["-created_at"])
         elif role == 'marker':
             routes = db.get_by_filter(route_table.table_name, [
-                ["markerid", "==", userid]
+                ["markerid", "=", userid]
             ], route_table.json_fields, order=["-created_at"])
         elif role == 'driver':
             routes = db.get_by_filter(driver_routes.table_name, [
-                ["driverid", "==", userid]
+                ["driverid", "=", userid]
             ], driver_routes.json_fields, order=["-created_at"])
 
         payload.update({"message": "Routes listed successfully.",
@@ -180,14 +180,16 @@ def mark_route():
         status = ""
 
         coordinates = data.get('coordinates', [])
+        if isinstance(coordinates, str):
+            coordinates = json.loads(coordinates)
         if role == 'marker':
             route = db.get(route_table.table_name, routeid, route_table.json_fields)
             if not route:
                 raise Exception("Route does not exist.")
             if route['markerid'] != userid:
                 raise Exception("You are not assigned to this route.")
-            if route['status'] != 'scheduled':
-                raise Exception("Route is not scheduled.")
+            # if route['status'] != 'scheduled':
+            #     raise Exception("Route is not scheduled.")
             if route['status'] == 'completed':
                 raise Exception("Route is already completed.")
             
@@ -206,7 +208,10 @@ def mark_route():
                     "id": f'{currentime}~{index}'
                 })
                 if coordinate.get('checkpoint', False):
-                    checkpoints.append(coordinate.get('checkpoint'))
+                    coordinate['checkpoint'].update({
+                        "id": f'{currentime}~{index}'
+                    })
+                    checkpoints.append(coordinate.pop('checkpoint'))
                     # Handle photo upload and save the image url properly
             paths = route.get('paths', [])
             if not paths:
@@ -275,6 +280,7 @@ def mark_route():
                 )
             
             route["checkpioints"] = route.get("checkpoints", []) + checkpoints
+            route["paths"] = paths
             db.create(
                 route_table.table_name,
                 routeid,

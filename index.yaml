@@ -1,0 +1,7 @@
+indexes:
+
+- kind: Routes
+  properties:
+    - name: markerid
+    - name: created_at
+      direction: desc
