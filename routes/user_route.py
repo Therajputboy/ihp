@@ -82,7 +82,7 @@ def login():
             "message": "Login successful.",
             "user": user,
             "role": user['role']
-        }
+        }   
         result = 200
         jwt_payload = {
             "userid": userid,
@@ -167,3 +167,61 @@ def reset_password():
         }
         result = 400
     return jsonify(data), result
+
+
+@bp_user.route('/employees', methods=['GET'])
+@jwt_required
+def list_employees():
+    payload, result = {
+        "message": "Oops! Something went wrong. Please try again."
+    }, 400
+    try:
+        # Fetch results
+        employees = db.get_all(users.table_name, users.json_fields)
+
+        emp_res = [
+            {
+                'image': emp.get('extras', {}).get('imageurl', None),
+                'name': emp.get('name', None),
+                'email': emp.get('email', None),
+                'status': emp.get('status', None),
+                'role': emp.get('role', None),
+                'userid': emp.get('userid', None)
+            } for emp in employees] 
+
+        payload.update({"message": "Employees List fetched successfully.",
+                        "employee_list": emp_res})
+        result = 200
+    except Exception as e:
+        ExceptionLogging.LogException(traceback.format_exc(), e)
+        return make_response(jsonify(payload), result)
+    return make_response(jsonify(payload), result)
+
+
+@bp_user.route('/delete/<userid>', methods=['PATCH'])
+@jwt_required
+def delete_employee(userid):
+    payload, result = {
+        "message": "Oops! Something went wrong. Please try again."
+        }, 400
+    try:
+        employee = db.get_by_filter(users.table_name, [("userid", "=", userid)], users.json_fields)
+
+        if not employee or employee[0].get("status") == 0:
+            raise Exception("Employee does not exist.")
+        
+        # Get the status from the request body
+        new_status = request.get_json('status')
+        updated_res = db.update_columns(users.table_name, userid, new_status, users.json_fields)
+
+        payload.update({"message": "Employee deleted successfully.",
+                        "employee_list": updated_res})
+        result = 200
+    except Exception as e:
+        ExceptionLogging.LogException(traceback.format_exc(), str(e))
+        return make_response(jsonify(payload.update({"message": str(e)})), result)
+    return make_response(jsonify(payload), result)
+    
+
+
+

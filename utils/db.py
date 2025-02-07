@@ -682,4 +682,15 @@ def query_entities_by_batch(batch_size, kind, filters=None, start_cursor=None):
     next_cursor = query_iter.next_page_token if query_iter.next_page_token else None
 
     yield entities, next_cursor
+    
+@measuredb_latency
+def update_columns(table_name, key_name, update_dict, json_fields):
+    key = datastore_client.key(table_name, key_name)
+    entity = datastore_client.get(key)
 
+    for column_name, new_value in update_dict.items():
+        entity[column_name] = new_value
+
+    datastore_client.put(entity)
+    formatted_entity = datastore_to_dict(entity, json_fields)
+    return formatted_entity
