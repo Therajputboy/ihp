@@ -169,7 +169,7 @@ def reset_password():
     return jsonify(data), result
 
 
-@bp_user.route('/employees', methods=['GET'])
+@bp_user.route('/list', methods=['GET'])
 @jwt_required
 def list_employees():
     payload, result = {
@@ -192,7 +192,7 @@ def list_employees():
         payload.update({"message": "Employees List fetched successfully.",
                         "employee_list": emp_res})
         result = 200
-        
+
     except Exception as e:
         ExceptionLogging.LogException(traceback.format_exc(), e)
         return make_response(jsonify(payload), result)
@@ -212,11 +212,18 @@ def delete_employee(userid):
             raise Exception("Employee does not exist.")
         
         # Get the status from the request body
-        new_status = request.get_json('status')
-        updated_res = db.update_columns(users.table_name, userid, new_status, users.json_fields)
+        new_status = {'status': 0}
+
+        db.create(
+            users.table_name,
+            userid,
+            new_status,
+            users.exclude_from_indexes,
+            users.json_fields
+        )
 
         payload.update({"message": "Employee deleted successfully.",
-                        "employee_list": updated_res})
+                        "employee_status": new_status})
         result = 200
 
     except Exception as e:
