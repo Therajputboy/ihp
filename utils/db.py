@@ -693,4 +693,5 @@ def update_columns(table_name, key_name, update_dict, json_fields):
 
     datastore_client.put(entity)
     formatted_entity = datastore_to_dict(entity, json_fields)
+    
     return formatted_entity

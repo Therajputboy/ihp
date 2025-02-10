@@ -192,6 +192,7 @@ def list_employees():
         payload.update({"message": "Employees List fetched successfully.",
                         "employee_list": emp_res})
         result = 200
+        
     except Exception as e:
         ExceptionLogging.LogException(traceback.format_exc(), e)
         return make_response(jsonify(payload), result)
@@ -217,6 +218,7 @@ def delete_employee(userid):
         payload.update({"message": "Employee deleted successfully.",
                         "employee_list": updated_res})
         result = 200
+
     except Exception as e:
         ExceptionLogging.LogException(traceback.format_exc(), str(e))
         return make_response(jsonify(payload.update({"message": str(e)})), result)
