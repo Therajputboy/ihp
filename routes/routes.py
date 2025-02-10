@@ -322,6 +322,14 @@ def mark_route():
                     coordinate['checkpoint'].update({
                         "id": f'{currentime}~{index}'
                     })
+                    file = request.files.get(f'checkpoint_{len(index)}', None)
+                    imageurl = ""
+                    if file:
+                        file.filename = "checkpoints/" + {routeid} + "/" + f'{currentime}~{index}' + "." + "png"
+                        imageurl = upload_file_to_gcs(file, 'ihp-rpp-bucket')
+                        coordinate['checkpoint'].update({
+                            "imageurl": imageurl
+                        })
                     checkpoints.append(coordinate.pop('checkpoint'))
                     # Handle photo upload and save the image url properly
             paths = route.get('paths', [])

@@ -9,13 +9,14 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 import pytz
 from utils import db
-from utils.schemas import users
+from utils.schemas import users, feedback as feedback_table
 from utils.email import send_mail
 import random
+import uuid
 
 bp_user = Blueprint('bp_user', __name__)
 
-@bp_user.route('/create', methods=['POST'])
+@bp_user.route('/upsert', methods=['POST'])
 @jwt_required
 def create_user():
     try:
@@ -146,7 +147,7 @@ def reset_password():
             if password != confirm_password:
                 raise Exception("Passwords do not match.")
             user['password'] = generate_password_hash(password)
-            db.update(users.table_name, userid, user, users.json_fields)
+            # db.update(users.table_name, userid, user, users.json_fields)
             data = {
                 "message": "Password reset successful."
             }
@@ -159,6 +160,71 @@ def reset_password():
             users.exclude_from_indexes,
             users.json_fields
         )
+        result = 200
+    except Exception as e:
+        ExceptionLogging.LogException(traceback.format_exc(), str(e))
+        data = {
+            "message": str(e)
+        }
+        result = 400
+    return jsonify(data), result
+
+@bp_user.route('/logout', methods=['POST'])
+@jwt_required
+def logout():
+    try:
+        data = {
+            "message": "Logout successful."
+        }
+        result = 200
+        resp = make_response(jsonify(data), result)
+        resp.set_cookie('cookie', '', expires=0)
+    except Exception as e:
+        ExceptionLogging.LogException(traceback.format_exc(), str(e))
+        data = {
+            "message": str(e)
+        }
+        result = 400
+        return jsonify(data), result
+    return resp
+
+@bp_user.route('/feedback', methods=['POST'])
+@jwt_required
+def feedback():
+    try:
+        data = request.form.to_dict()
+        userid = request.userid
+        user = db.get(users.table_name, userid, users.json_fields)
+        if not user:
+            raise Exception("User does not exist.")
+        feedback = data['feedback']
+        description = data.get('description', "")
+        created_on = datetime.now(pytz.timezone('Asia/Kolkata'))
+        feedbackid = uuid.uuid4().hex
+        new_feedback = {
+            "userid": userid,
+            "feedback": feedback,
+            "created_on": created_on,
+            "extras": {
+                "description": description,
+                "images": []
+            }
+        }
+        for index, file in enumerate(request.files):
+            file_data = request.files[file]
+            file_data.filename = "feedback/" + userid + "/" + feedbackid + "~" + str(index) + "." + "png"
+            imageurl = upload_file_to_gcs(file_data, 'ihp-rpp-bucket')
+            new_feedback['extras']['images'].append(imageurl)
+        db.create(
+            feedback_table.table_name,
+            feedbackid,
+            new_feedback,
+            feedback_table.exclude_from_indexes,
+            feedback_table.json_fields
+        )
+        data = {
+            "message": "Feedback submitted successfully."
+        }
         result = 200
     except Exception as e:
         ExceptionLogging.LogException(traceback.format_exc(), str(e))
