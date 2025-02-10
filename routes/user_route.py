@@ -3,6 +3,7 @@
 from flask import Blueprint, request, jsonify, make_response
 from utils.exceptionlogging import ExceptionLogging
 import traceback
+import logging
 from utils.storagemanager import upload_file_to_gcs
 from utils.jwt import jwt_required, generate_jwt_token
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -214,7 +215,6 @@ def delete_employee(userid):
         # Update the status for the employee
         updated_user = employee[0].copy()
         updated_user.update({'status': 0})
-        print(updated_user)
 
         db.create(
             users.table_name,
