@@ -199,7 +199,7 @@ def list_employees():
     return make_response(jsonify(payload), result)
 
 
-@bp_user.route('/delete/<userid>', methods=['PATCH'])
+@bp_user.route('/delete/<userid>', methods=['GET'])
 @jwt_required
 def delete_employee(userid):
     payload, result = {
@@ -211,19 +211,21 @@ def delete_employee(userid):
         if not employee or employee[0].get("status") == 0:
             raise Exception("Employee does not exist.")
         
-        # Get the status from the request body
-        new_status = {'status': 0}
+        # Update the status for the employee
+        updated_user = employee[0].copy()
+        updated_user.update({'status': 0})
+        print(updated_user)
 
         db.create(
             users.table_name,
             userid,
-            new_status,
+            updated_user,
             users.exclude_from_indexes,
             users.json_fields
         )
 
         payload.update({"message": "Employee deleted successfully.",
-                        "employee_status": new_status})
+                        "employee_status": updated_user})
         result = 200
 
     except Exception as e:
