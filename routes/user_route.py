@@ -3,6 +3,7 @@
 from flask import Blueprint, request, jsonify, make_response
 from utils.exceptionlogging import ExceptionLogging
 import traceback
+import logging
 from utils.storagemanager import upload_file_to_gcs
 from utils.jwt import jwt_required, generate_jwt_token
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -82,7 +83,7 @@ def login():
             "message": "Login successful.",
             "user": user,
             "role": user['role']
-        }
+        }   
         result = 200
         jwt_payload = {
             "userid": userid,
@@ -167,3 +168,71 @@ def reset_password():
         }
         result = 400
     return jsonify(data), result
+
+
+@bp_user.route('/list', methods=['GET'])
+@jwt_required
+def list_employees():
+    payload, result = {
+        "message": "Oops! Something went wrong. Please try again."
+    }, 400
+    try:
+        # Fetch results
+        employees = db.get_all(users.table_name, users.json_fields)
+
+        emp_res = [
+            {
+                'image': emp.get('extras', {}).get('imageurl', None),
+                'name': emp.get('name', None),
+                'email': emp.get('email', None),
+                'status': emp.get('status', None),
+                'role': emp.get('role', None),
+                'userid': emp.get('userid', None)
+            } for emp in employees] 
+
+        payload.update({"message": "Employees List fetched successfully.",
+                        "employee_list": emp_res})
+        result = 200
+
+    except Exception as e:
+        ExceptionLogging.LogException(traceback.format_exc(), e)
+        return make_response(jsonify(payload), result)
+    return make_response(jsonify(payload), result)
+
+
+@bp_user.route('/delete/<userid>', methods=['GET'])
+@jwt_required
+def delete_employee(userid):
+    payload, result = {
+        "message": "Oops! Something went wrong. Please try again."
+        }, 400
+    try:
+        employee = db.get_by_filter(users.table_name, [("userid", "=", userid)], users.json_fields)
+
+        if not employee or employee[0].get("status") == 0:
+            raise Exception("Employee does not exist.")
+        
+        # Update the status for the employee
+        updated_user = employee[0].copy()
+        updated_user.update({'status': 0})
+
+        db.create(
+            users.table_name,
+            userid,
+            updated_user,
+            users.exclude_from_indexes,
+            users.json_fields
+        )
+
+        payload.update({"message": "Employee deleted successfully.",
+                        "employee_status": updated_user})
+        result = 200
+
+    except Exception as e:
+        ExceptionLogging.LogException(traceback.format_exc(), str(e))
+        return make_response(jsonify(payload.update({"message": str(e)})), result)
+    return make_response(jsonify(payload), result)
+    
+
+
+

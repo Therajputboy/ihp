@@ -682,4 +682,3 @@ def query_entities_by_batch(batch_size, kind, filters=None, start_cursor=None):
     next_cursor = query_iter.next_page_token if query_iter.next_page_token else None
 
     yield entities, next_cursor
-
