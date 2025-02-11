@@ -207,22 +207,26 @@ def list_routes():
         userid = request.userid
         user = request.user
         role = user['role']
+        status = request.args.get('status', '')
         if role == 'admin':
             routes = db.get_by_filter(route_table.table_name, [
                 ["status", "!=", "deleted"]
             ], order=["-created_at"],
             json_fields=route_table.json_fields)
+            if status == 'active':
+                routes = [route for route in routes if route.get('status', '') in ['scheduled', 'active']]
+            if status == 'inactive':
+                routes = [route for route in routes if route.get('status', '') in ['completed', 'created']]
 
         elif role == 'marker':
             routes = db.get_by_filter(route_table.table_name, [
                 ["markerid", "=", userid],
-                ["status", "!=", "deleted"]
+                ["status", "=", status]
             ], route_table.json_fields, order=["-created_at"])
-
         elif role == 'driver':
             routes = db.get_by_filter(driver_routes.table_name, [
                 ["driverid", "=", userid],
-                ["status", "!=", "deleted"]
+                ["status", "=", status]
             ], driver_routes.json_fields, order=["-created_at"])
 
         payload.update({"message": "Routes listed successfully.",
@@ -322,14 +326,14 @@ def mark_route():
                     coordinate['checkpoint'].update({
                         "id": f'{currentime}~{index}'
                     })
-                    file = request.files.get(f'checkpoint_{len(index)}', None)
-                    imageurl = ""
-                    if file:
-                        file.filename = "checkpoints/" + {routeid} + "/" + f'{currentime}~{index}' + "." + "png"
-                        imageurl = upload_file_to_gcs(file, 'ihp-rpp-bucket')
-                        coordinate['checkpoint'].update({
-                            "imageurl": imageurl
-                        })
+                    # file = request.files.get(f'checkpoint_{len(index)}', None)
+                    # imageurl = ""
+                    # if file:
+                    #     file.filename = "checkpoints/" + {routeid} + "/" + f'{currentime}~{index}' + "." + "png"
+                    #     imageurl = upload_file_to_gcs(file, 'ihp-rpp-bucket')
+                    #     coordinate['checkpoint'].update({
+                    #         "imageurl": imageurl
+                    #     })
                     checkpoints.append(coordinate.pop('checkpoint'))
                     # Handle photo upload and save the image url properly
             paths = route.get('paths', [])
@@ -411,7 +415,7 @@ def mark_route():
         
         result = 200
         payload.update({"message": "Path details saved successfully.",
-                        "checkpoints": route["checkpioints"]})
+                        "checkpoints": route["checkpoints"]})
     
     except CustomException as e:
         ExceptionLogging.LogException(traceback.format_exc(), e)
@@ -422,7 +426,90 @@ def mark_route():
         return make_response(jsonify(payload), result)
     return make_response(jsonify(payload), result)
 
+@bp_route.route('/update/checkpoint', methods=['POST'])
+@jwt_required
+def update_checkpoint():
+    payload, result = {
+        "message": "Oops! Something went wrong. Please try again."
+    }, 400
+    try:
+        data = request.form.to_dict()
+        userid = request.userid
+        user = request.user
+        role = user['role']
+        routeid = data['routeid']
+        # pathid = data['pathid']
+        checkpoint_id = data['checkpoint_id']
+        contact = data.get('contact', '')
+        location_name = data.get('location_name', '')
+        image = request.files.get('image', None)
+        if role != 'marker':
+            raise CustomException("Only marker can update a checkpoint.")
+        
+        if role == 'marker':
+            route = db.get(route_table.table_name, routeid, route_table.json_fields)
+            if not route:
+                raise CustomException("Route does not exist.")
+            
+            if route['markerid'] != userid:
+                raise CustomException("You are not assigned to this route.")
+            
+            if route['status'] == 'completed':
+                raise CustomException("Route is already completed.")
+            
+            checkpoints = route.get('checkpoints', [])
+            for checkpoint in checkpoints:
+                if checkpoint.get('id', '') == checkpoint_id:
+                    checkpoint.update({
+                        "contact": contact,
+                        "location_name": location_name
+                    })
+                    if image:
+                        image.filename = "checkpoints/" + {routeid} + "/" + checkpoint_id + "." + "png"
+                        imageurl = upload_file_to_gcs(image, 'ihp-rpp-bucket')
+                        checkpoint.update({
+                            "imageurl": imageurl
+                        })
+                    break
 
+
+            log_entry = {
+                "userid": userid,
+                "action": "checkpointupdated",
+                "created_at": datetime.now(pytz.timezone('Asia/Kolkata')),
+                "extras": {
+                    "route_name": route.get('route_name', ''),
+                    "table": route_table.table_name,
+                    "table_id": routeid,
+                    "status": 'active'
+                }
+            }
+            db.create(
+                log_table.table_name,
+                None,
+                log_entry,
+                log_table.exclude_from_indexes,
+                log_table.json_fields
+            )
+            route.update({
+                "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
+            })
+
+            db.create(
+                route_table.table_name,
+                routeid,
+                route,
+                route_table.exclude_from_indexes,
+                route_table.json_fields
+            )
+    except CustomException as e:
+        ExceptionLogging.LogException(traceback.format_exc(), e)
+        payload.update({"message": str(e.message)})
+        return make_response(jsonify(payload), result)
+    except Exception as e:
+        ExceptionLogging.LogException(traceback.format_exc(), e)
+        return make_response(jsonify(payload), result)
+    
 @bp_route.route('/<routeid>', methods=['GET'])
 @jwt_required
 def route_by_id(routeid):
@@ -725,8 +812,23 @@ def driver_travel():
             route_table.exclude_from_indexes,
             route_table.json_fields
         )
+        driver_merged_coordinates = []
+        driver_route = driver_route[0]
+        paths = driver_route.get('paths', [])
+        driver_paths = db.get_multi_by_key(driver_travelled_path.table_name, paths, driver_travelled_path.json_fields)
+
+        driver_paths_map = {}
+        for path in driver_paths:
+            path_id = path.get('path_id', '')
+            driver_paths_map[path_id] = path
+
+        driver_merged_coordinates = []
+        for path_id in paths:
+            driver_merged_coordinates += driver_paths_map.get(path_id, {}).get('coordinates', [])
+
         result = 200
-        payload.update({"message": "Route coordinated saved successfully."})
+        payload.update({"message": "Route coordinated saved successfully.",
+                        "driver_travelled_coordinates": driver_merged_coordinates})
     
     except CustomException as e:
         ExceptionLogging.LogException(traceback.format_exc(), e)
