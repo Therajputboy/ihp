@@ -11,7 +11,8 @@ redis_config = {
         "REDISPORT": 6379
     },
     "dev": {
-        "REDISHOST": "10.207.156.179",
+        # "REDISHOST": "10.207.156.179",
+        "REDISHOST": "localhost",
         "REDISPORT": 6379
     },
     "prod": {

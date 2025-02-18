@@ -12,6 +12,7 @@ from utils import db
 from utils.schemas import users, routes as route_table, marked_routes, driver_routes, log_table, driver_travelled_path
 import uuid, json
 from utils.globalconstants import CustomException
+from utils.logging import logger
 
 bp_route = Blueprint('bp_route', __name__)
 
@@ -219,10 +220,16 @@ def list_routes():
                 routes = [route for route in routes if route.get('status', '') in ['completed', 'created']]
 
         elif role == 'marker':
-            routes = db.get_by_filter(route_table.table_name, [
+            fetched_routes = db.get_by_filter(route_table.table_name, [
                 ["markerid", "=", userid],
                 ["status", "=", status]
             ], route_table.json_fields, order=["-created_at"])
+            routes = []
+            for route in fetched_routes:
+                recent_driver = route.get('recent_driver', None)
+                if recent_driver:
+                    continue
+                routes.append(route)
         elif role == 'driver':
             routes = db.get_by_filter(driver_routes.table_name, [
                 ["driverid", "=", userid],
@@ -247,6 +254,7 @@ def mark_route():
     }, 400
     try:
         data = request.form.to_dict()
+        logger.info(data)
         userid = request.userid
         user = request.user
         role = user['role']

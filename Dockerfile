@@ -8,7 +8,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     PORT=8080 \
     ENV=dev \
-    project=ihp-rpp
+    project=ihp-rpp \
+    LOG_LEVEL=INFO
 # Copy the requirements file into the container
 COPY requirements.txt .
 
@@ -17,6 +18,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application code into the container
 COPY . .
+
+ENV PYTHONLOGGING='{"version": 1, "handlers": {"cloud": {"class": "google.cloud.logging.handlers.CloudLoggingHandler"}}, "loggers": {"": {"handlers": ["cloud"], "level": "INFO"}}}'
 
 # Expose port 8000 for the application
 EXPOSE 8000

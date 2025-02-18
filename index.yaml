@@ -13,6 +13,13 @@ indexes:
     direction: desc
   - name: status
 
+
+- kind: Routes
+  properties:
+  - name: status
+  - name: created_at
+    direction: desc
+
 - kind: DriverRoutes
   properties:
     - name: driverid

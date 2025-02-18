@@ -45,3 +45,4 @@ typing_extensions==4.12.2
 urllib3==1.26.20
 Werkzeug==2.3.7
 wrapt==1.15.0
+flask-cors
