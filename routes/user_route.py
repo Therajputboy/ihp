@@ -38,7 +38,7 @@ def create_user():
         
         role = data['role']
         name = data['name']
-        file = request.files['image']
+        file = request.files.get('image')
         imageurl = ""
         if file:
             file.filename = "users/" + userid + "." + "png"
@@ -98,6 +98,7 @@ def login():
             "name": user['name']
         }
         cookie = generate_jwt_token(jwt_payload)
+        data.update({"token": cookie})
         resp = make_response(jsonify(data), result)
         resp.set_cookie('cookie', cookie)
     except Exception as e:

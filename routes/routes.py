@@ -115,7 +115,8 @@ def assign_route():
                 "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
                 "status": status,
                 "markerid": memberid,
-                "assigned_to": "marker"
+                "assigned_to": "marker",
+                "assigned_to_user": memberid
             })
             db.create(
                 route_table.table_name,
@@ -137,7 +138,8 @@ def assign_route():
                 "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
                 "status": status,
                 "recent_driver": memberid,
-                "assigned_to": "driver"
+                "assigned_to": "driver",
+                "assigned_to_user": memberid
             })
             db.create(
                 route_table.table_name,
@@ -421,9 +423,20 @@ def mark_route():
                 route_table.json_fields
             )
         
+        marked_paths = db.get_multi_by_key(marked_routes.table_name, paths, marked_routes.json_fields)
+        paths_map = {}
+        for path in marked_paths:
+            path_id = path.get('path_id', '')
+            paths_map[path_id] = path
+
+        merged_coordinates = []
+        for path_id in paths:
+            merged_coordinates += paths_map.get(path_id, {}).get('coordinates', [])
+
         result = 200
         payload.update({"message": "Path details saved successfully.",
-                        "checkpoints": route["checkpoints"]})
+                        "checkpoints": route["checkpoints"],
+                        "marked_coordinates": merged_coordinates})
     
     except CustomException as e:
         ExceptionLogging.LogException(traceback.format_exc(), e)

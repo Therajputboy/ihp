@@ -18,6 +18,11 @@ def jwt_required(f):
     def decorated_function(*args, **kwargs):
         token = request.cookies.get('cookie')
         if not token:
+            auth_header = request.headers.get('Authorization')
+            if not auth_header:
+                return jsonify({"message": "Token is missing"}), 403
+            token = auth_header.split(" ")[1]
+        if not token:
             return jsonify({"message": "Token is missing"}), 403
         try:
             data = jwt.decode(token, Config.SECRET_KEY, algorithms=['HS256'])
