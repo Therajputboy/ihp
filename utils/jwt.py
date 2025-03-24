@@ -30,6 +30,11 @@ def jwt_required(f):
             user = db.get(users.table_name, request.userid, users.json_fields)
             if not user:
                 return jsonify({"message": "User does not exist"}), 403
+            sessionid = user.get('sessionid')
+            if not sessionid:
+                return jsonify({"message": "Token is invalid"}), 403
+            if sessionid != data['sessionid']:
+                return jsonify({"message": "Session Expired"}), 403
             request.user = user
             
         except Exception as e:

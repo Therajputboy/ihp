@@ -134,20 +134,6 @@ def assign_route():
             if member['role'] != 'driver':
                 raise CustomException("Member is not a driver.")
             
-            route.update({
-                "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
-                "status": status,
-                "recent_driver": memberid,
-                "assigned_to": "driver",
-                "assigned_to_user": memberid
-            })
-            db.create(
-                route_table.table_name,
-                route_id,
-                route,
-                route_table.exclude_from_indexes,
-                route_table.json_fields
-            )
             statushistory = [status + "@" + datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d %H:%M:%S")]
             driver_route_id = uuid.uuid4().hex
             driver_route = {
@@ -165,6 +151,22 @@ def assign_route():
                 driver_route,
                 driver_routes.exclude_from_indexes,
                 driver_routes.json_fields
+            )
+
+            route.update({
+                "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
+                "status": status,
+                "recent_driver": memberid,
+                "assigned_to": "driver",
+                "assigned_to_user": memberid,
+                "driver_route_id": driver_route_id
+            })
+            db.create(
+                route_table.table_name,
+                route_id,
+                route,
+                route_table.exclude_from_indexes,
+                route_table.json_fields
             )
         log_entry={
             "userid": adminid,
@@ -212,14 +214,22 @@ def list_routes():
         role = user['role']
         status = request.args.get('status', '')
         if role == 'admin':
-            routes = db.get_by_filter(route_table.table_name, [
-                ["status", "!=", "deleted"]
-            ], order=["-created_at"],
-            json_fields=route_table.json_fields)
-            if status == 'active':
-                routes = [route for route in routes if route.get('status', '') in ['scheduled', 'active']]
-            if status == 'inactive':
-                routes = [route for route in routes if route.get('status', '') in ['completed', 'created']]
+            if status == 'driver':
+                routes = db.get_by_filter(route_table.table_name, [
+                    ["status", "!=", "deleted"],
+                    ["assigned_to", "=", "driver"]
+                ], driver_routes.json_fields, order=["-created_at"])
+            elif status == 'marker':
+                routes = db.get_by_filter(route_table.table_name, [
+                    ["status", "!=", "deleted"],
+                    ["assigned_to", "=", "marker"]
+                ], route_table.json_fields, order=["-created_at"])
+            else:
+                routes = db.get_by_filter(route_table.table_name, [
+                    ["status", "!=", "deleted"]
+                ], order=["-created_at"],
+                json_fields=route_table.json_fields)
+                routes = [route for route in routes if route.get('status', '') == 'created']
 
         elif role == 'marker':
             fetched_routes = db.get_by_filter(route_table.table_name, [
@@ -370,30 +380,33 @@ def mark_route():
                 )
                 
             else:
-                marker_route_id = f'{routeid}~{userid}~{len(paths)}'
                 
                 last_active_marker_route = db.get(marked_routes.table_name, paths[-1], marked_routes.json_fields)
                 if last_active_marker_route.get('status', '') != 'active':
                     raise Exception("Route is not active.")
                 
-                paths.append(marker_route_id)
                 next_route_time = last_active_marker_route.get('nextroutetime', datetime.now(pytz.timezone('Asia/Kolkata')))
 
                 if datetime.now(pytz.timezone('Asia/Kolkata')) < next_route_time:
                     coordinates = last_active_marker_route.get('coordinates', []) + coordinates
-                    marker_route_data = {
-                        "route_id": routeid,
-                        "markerid": userid,
-                        "path_id": marker_route_id,
-                        "coordinates": coordinates,
-                        # "checkpoint": checkpoint,
-                        "status": status,
-                        "created_at": datetime.now(pytz.timezone('Asia/Kolkata')),
-                        "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
-                        "nextroutetime": datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(minutes=5),
-                    }
-
+                    # marker_route_data = {
+                    #     "route_id": routeid,
+                    #     "markerid": userid,
+                    #     "path_id": marker_route_id,
+                    #     "coordinates": coordinates,
+                    #     # "checkpoint": checkpoint,
+                    #     "status": status,
+                    #     "created_at": datetime.now(pytz.timezone('Asia/Kolkata')),
+                    #     "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
+                    #     "nextroutetime": datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(minutes=5),
+                    # }
+                    last_active_marker_route['coordinates'] = coordinates
+                    last_active_marker_route['updated_at'] = datetime.now(pytz.timezone('Asia/Kolkata'))
+                    marker_route_id = last_active_marker_route.get('path_id', '') 
+                    marker_route_data = last_active_marker_route
                 else:
+                    marker_route_id = f'{routeid}~{userid}~{len(paths)}'
+                    paths.append(marker_route_id)
                     marker_route_data = {
                         "route_id": routeid,
                         "markerid": userid,
@@ -538,9 +551,16 @@ def route_by_id(routeid):
         "message": "Oops! Something went wrong. Please try again."
     }, 400
     try:
+        user = request.user
+        role = user['role']
+
         routeid = request.view_args.get('routeid', None)
+        driver_route_id = request.args.get('driver_route_id', None)
         if not routeid:
             raise CustomException("Route id is required.")
+        
+        if not driver_route_id and role == "driver":
+            raise CustomException("Driver route id is required.")
         
         route = db.get(route_table.table_name, routeid, route_table.json_fields)
         if not route:
@@ -560,17 +580,11 @@ def route_by_id(routeid):
         route.update({
             "coordinates": merged_coordinates
         })
-        user = request.user
-        role = user['role']
         driver_merged_coordinates = []
         if role == 'driver':
-            driver_route = db.get_by_filter(driver_routes.table_name, [
-                ["route_id", "=", routeid],
-                ["driverid", "=", user['userid']]
-            ], driver_routes.json_fields)
+            driver_route = db.get(driver_routes.table_name, driver_route_id, driver_routes.json_fields)
 
             if driver_route:
-                driver_route = driver_route[0]
                 paths = driver_route.get('paths', [])
                 driver_paths = db.get_multi_by_key(driver_travelled_path.table_name, paths, driver_travelled_path.json_fields)
 
@@ -834,7 +848,7 @@ def driver_travel():
             route_table.json_fields
         )
         driver_merged_coordinates = []
-        driver_route = driver_route[0]
+        # driver_route = driver_route[0]
         paths = driver_route.get('paths', [])
         driver_paths = db.get_multi_by_key(driver_travelled_path.table_name, paths, driver_travelled_path.json_fields)
 

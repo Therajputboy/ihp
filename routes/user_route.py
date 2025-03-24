@@ -25,6 +25,7 @@ def create_user():
             "message": "Oops! Something went wrong. Please try again."
         }, 400
         data = request.form.to_dict()
+        logging.info(data)
         userid = data['userid']
         password = data['password']
         confirm_password = data['confirm_password']
@@ -79,6 +80,7 @@ def create_user():
 def login():
     try:
         data = request.get_json()
+        logging.info(data)
         userid = data['userid']
         password = data['password']
         user = db.get(users.table_name, userid, users.json_fields)
@@ -91,11 +93,21 @@ def login():
             "user": user,
             "role": user['role']
         }   
+        sessionid = uuid.uuid4().hex
+        user['sessionid'] = sessionid
+        db.create(
+            users.table_name,
+            userid,
+            user,
+            users.exclude_from_indexes,
+            users.json_fields
+        )
         result = 200
         jwt_payload = {
             "userid": userid,
             "role": user['role'],
-            "name": user['name']
+            "name": user['name'],
+            "sessionid": sessionid
         }
         cookie = generate_jwt_token(jwt_payload)
         data.update({"token": cookie})
@@ -117,6 +129,7 @@ def login():
 def reset_password():
     try:
         data = request.get_json()
+        logging.info(data)
         userid = data['userid']
         action = data.get('action', "sendotp")
         user = db.get(users.table_name, userid, users.json_fields)
@@ -185,6 +198,16 @@ def logout():
             "message": "Logout successful."
         }
         result = 200
+        userid = request.userid
+        user = db.get(users.table_name, userid, users.json_fields)
+        user['sessionid'] = None
+        db.create(
+            users.table_name,
+            userid,
+            user,
+            users.exclude_from_indexes,
+            users.json_fields
+        )
         resp = make_response(jsonify(data), result)
         resp.set_cookie('cookie', '', expires=0)
     except Exception as e:

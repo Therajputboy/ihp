@@ -19,6 +19,13 @@ indexes:
   - name: status
   - name: created_at
     direction: desc
+  
+- kind: Routes
+  properties:
+  - name: assigned_to
+  - name: created_at
+    direction: desc
+  - name: status
 
 - kind: DriverRoutes
   properties:
@@ -26,3 +33,10 @@ indexes:
     - name: created_at
       direction: desc
     - name: status
+
+- kind: DriverRoutes
+  properties:
+  - name: driverid
+  - name: status
+  - name: created_at
+    direction: desc
