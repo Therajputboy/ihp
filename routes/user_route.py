@@ -303,6 +303,16 @@ def delete_employee(userid):
         "message": "Oops! Something went wrong. Please try again."
         }, 400
     try:
+        """
+        if it is a marker then in routes table if markerid is same as this user and status is active and driverid is null then raise exception,
+        For all the routes in routes table, remove marker id and change status to created
+        Delete the marker from users table
+        """
+
+        """
+        if it is a driver then in driver_routes table if driverid is same as this user and status is active then raise exception,
+        In Driver Routes table delete all the entries of the driver whose status is not completed.
+        Delete the driver from users table"""
         employee = db.get_by_filter(users.table_name, [("userid", "=", userid)], users.json_fields)
 
         if not employee or employee[0].get("status") == 0:
