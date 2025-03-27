@@ -16,6 +16,16 @@ from utils.logging import logger
 
 bp_route = Blueprint('bp_route', __name__)
 
+status_order = {
+    "created": 1,
+    "scheduled": 2,
+    "active": 3,
+    "marked": 4,
+    "unassigned": 5,
+    "completed": 6,
+    "failed": 5
+}
+
 @bp_route.route('/create', methods=['POST'])
 @jwt_required
 def create_route():
@@ -108,6 +118,9 @@ def assign_route():
             if route['status'] not in  ['created', 'scheduled']:
                 raise CustomException("Marker already assigned.")
             
+            if route['status'] == 'active':
+                raise CustomException("Route is already active.")
+            
             if member['role'] != 'marker':
                 raise CustomException("Member is not a marker.")
             
@@ -125,16 +138,19 @@ def assign_route():
                 route_table.exclude_from_indexes,
                 route_table.json_fields
             )
-        elif assigning_role == 'driver':
-            if route['status'] != 'completed':
-                if not route.get('recent_driver', None):
-                    raise CustomException("Route cannot be assigned to driver.")
-                raise CustomException(f'Route is already assigned to {route.get("recent_driver", "")}.')
-            
+        elif assigning_role == 'driver':                
             if member['role'] != 'driver':
                 raise CustomException("Member is not a driver.")
             
             statushistory = [status + "@" + datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d %H:%M:%S")]
+
+            driver_route = db.get_by_filter(driver_routes.table_name, [
+                ["route_id", "=", route_id],
+                ["driverid", "=", memberid],
+                ["status", "IN", ["scheduled", "active", "created"]]
+            ], driver_routes.json_fields)
+            if driver_route:
+                db.delete(driver_routes.table_name, driver_route[0].get('driver_route_id', ''))
             driver_route_id = uuid.uuid4().hex
             driver_route = {
                 "route_id": route_id,
@@ -143,24 +159,25 @@ def assign_route():
                 "created_at": datetime.now(pytz.timezone('Asia/Kolkata')),
                 "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
                 "statushistory": statushistory,
-                "driver_route_id": driver_route_id
+                "driver_route_id": driver_route_id,
+                "extras": {
+                    "route_data": route
+                }
             }
+            route.update({
+                "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
+                "recent_driver": memberid,
+                "assigned_to": "driver",
+                "assigned_to_user": memberid
+            })
             db.create(
                 driver_routes.table_name,
-                driver_route_id,
+                driver_route.get('driver_route_id', ''),
                 driver_route,
                 driver_routes.exclude_from_indexes,
                 driver_routes.json_fields
             )
 
-            route.update({
-                "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
-                "status": status,
-                "recent_driver": memberid,
-                "assigned_to": "driver",
-                "assigned_to_user": memberid,
-                "driver_route_id": driver_route_id
-            })
             db.create(
                 route_table.table_name,
                 route_id,
@@ -213,23 +230,49 @@ def list_routes():
         user = request.user
         role = user['role']
         status = request.args.get('status', '')
+        all_users = db.get_all(users.table_name, users.json_fields)
+        users_map = {}
+        for user in all_users:
+            userid = user.get('userid', '')
+            users_map[userid] = user
         if role == 'admin':
             if status == 'driver':
-                routes = db.get_by_filter(route_table.table_name, [
-                    ["status", "!=", "deleted"],
-                    ["assigned_to", "=", "driver"]
-                ], driver_routes.json_fields, order=["-created_at"])
+                all_routes = db.get_by_filter(route_table.table_name, [
+                    ["status", "=", "completed"],
+                ], route_table.json_fields, order=["-created_at"])
+
+                dr = db.get_by_filter(driver_routes.table_name,[
+                    ["route_id", "IN", [route.get('route_id', '') for route in all_routes]]
+                ], driver_routes.json_fields)
+                route_map = {
+                    route.get('route_id', ''): route for route in dr if route.get('status', '')
+                }
+                for route in all_routes:
+                    if route.get('assigned_to') == 'unassigned':
+                        route['status'] = 'unassigned'
+                    else:
+                        route['status'] = route_map.get(route.get('route_id', ''), {}).get('status', 'unassigned')
+                        route['assigned_to'] = []
+                        if route['status'] != 'unassigned':
+                            route['assigned_to'].append(users_map.get(route_map.get(route.get('route_id', ''), {}).get('driverid', ''), {}))
+                            salespersons = route_map.get('extras', {}).get('salespersons', [])
+                            route['assigned_to'].extend([users_map.get(sp, {}) for sp in salespersons])
+                routes = all_routes
+
             elif status == 'marker':
                 routes = db.get_by_filter(route_table.table_name, [
-                    ["status", "!=", "deleted"],
+                    ["status", "!=", "created"],
                     ["assigned_to", "=", "marker"]
                 ], route_table.json_fields, order=["-created_at"])
+                for route in routes:
+                    route['assigned_to'] = [users_map.get(route.get('markerid', ''), {})]
             else:
                 routes = db.get_by_filter(route_table.table_name, [
-                    ["status", "!=", "deleted"]
+                    ["status", "=", "created"]
                 ], order=["-created_at"],
                 json_fields=route_table.json_fields)
-                routes = [route for route in routes if route.get('status', '') == 'created']
+                # routes = [route for route in routes if route.get('status', '') == 'created']
+
 
         elif role == 'marker':
             fetched_routes = db.get_by_filter(route_table.table_name, [
@@ -335,6 +378,11 @@ def mark_route():
                 "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
                 "status": status
             })
+            if status == 'completed':
+                route.update({
+                    "completed_at": datetime.now(pytz.timezone('Asia/Kolkata')),
+                    "assigned_to": "unassigned",
+                })
 
             currentime = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y%m%d%H%M%S")
             checkpoints = []
@@ -635,6 +683,23 @@ def delete_path_by_id(routeid):
         if not route:
             raise CustomException("Route does not exist.")
         
+        assigned_to = route.get('assigned_to', '')
+        delete = False
+        if assigned_to == 'driver':
+            driver_routes = db.get_by_filter(driver_routes.table_name, [
+                                ["route_id", "=", routeid],
+                                ["status", "=", "active"]
+                            ], driver_routes.json_fields)
+
+            if driver_routes:
+                raise CustomException(f"Route is active by driver {driver_routes[0].get("driverid", "")}, cannot be deleted.")
+            delete = True
+        if assigned_to == 'marker':
+            if route['status'] == 'active':
+                raise CustomException(f"Route is active by marker {route.get("markerid")}, cannot be deleted.")
+            delete = True
+            
+            
         log_entry = {
             "userid": request.userid,
             "action": "deleteroute",
@@ -652,17 +717,13 @@ def delete_path_by_id(routeid):
             log_table.exclude_from_indexes,
             log_table.json_fields
         )
-        route.update({
-            "status": "deleted"
-        })
-        db.create(
-            route_table.table_name,
-            routeid,
-            route,
-            route_table.exclude_from_indexes,
-            route_table.json_fields
-        )
-        payload.update({"message": "Path deleted successfully."})
+        if delete:
+            db.delete(route_table.table_name, routeid)
+            payload.update({"message": "Route deleted successfully."})
+        else:
+            payload.update({"message": "Route cannot be deleted."})
+        
+        payload.update({"message": "Route deleted successfully."})
         result = 200
 
     except CustomException as e:
@@ -754,6 +815,10 @@ def driver_travel():
             "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
             "status": status
         })
+        if status == 'completed':
+            route_data.update({
+                "assigned_to": "unassigned",
+            })
         currentime = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y%m%d%H%M%S")
         checkpoints_covered = []
         for index, coordinate in enumerate(coordinates):

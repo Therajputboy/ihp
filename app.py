@@ -17,3 +17,4 @@ if __name__ == '__main__':
 
 # gcloud builds submit --tag gcr.io/ihp-rpp/backend-app --project ihp-rpp
 # gcloud run deploy --image gcr.io/ihp-rpp/backend-app --platform managed --project ihp-rpp
+# gcloud datastore indexes create index.yaml --project=ihp-rpp
