@@ -232,9 +232,9 @@ def list_routes():
         status = request.args.get('status', '')
         all_users = db.get_all(users.table_name, users.json_fields)
         users_map = {}
-        for user in all_users:
-            userid = user.get('userid', '')
-            users_map[userid] = user
+        for u in all_users:
+            uid = user.get('userid', '')
+            users_map[uid] = u
         if role == 'admin':
             if status == 'driver':
                 all_routes = db.get_by_filter(route_table.table_name, [
@@ -688,15 +688,15 @@ def delete_path_by_id(routeid):
         if assigned_to == 'driver':
             driver_routes = db.get_by_filter(driver_routes.table_name, [
                                 ["route_id", "=", routeid],
-                                ["status", "=", "active"]
+                                ["status", "IN", ['scheduled', "active"]]
                             ], driver_routes.json_fields)
 
             if driver_routes:
-                raise CustomException(f"Route is active by driver {driver_routes[0].get("driverid", "")}, cannot be deleted.")
+                raise CustomException("Route is active by driver {0}, cannot be deleted.".format(driver_routes[0].get("driverid", "")))
             delete = True
         if assigned_to == 'marker':
             if route['status'] == 'active':
-                raise CustomException(f"Route is active by marker {route.get("markerid")}, cannot be deleted.")
+                raise CustomException("Route is active by marker {0}, cannot be deleted.".format(route.get("markerid")))
             delete = True
             
             
