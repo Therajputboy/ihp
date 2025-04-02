@@ -240,13 +240,15 @@ def list_routes():
                 all_routes = db.get_by_filter(route_table.table_name, [
                     ["status", "=", "completed"],
                 ], route_table.json_fields, order=["-created_at"])
-
-                dr = db.get_by_filter(driver_routes.table_name,[
-                    ["route_id", "IN", [route.get('route_id', '') for route in all_routes]]
-                ], driver_routes.json_fields)
-                route_map = {
-                    route.get('route_id', ''): route for route in dr if route.get('status', '')
-                }
+                dr = []
+                route_map = {}
+                if all_routes:
+                    dr = db.get_by_filter(driver_routes.table_name,[
+                        ["route_id", "IN", [route.get('route_id', '') for route in all_routes]]
+                    ], driver_routes.json_fields)
+                    route_map = {
+                        route.get('route_id', ''): route for route in dr if route.get('status', '')
+                    }
                 for route in all_routes:
                     if route.get('assigned_to') == 'unassigned':
                         route['status'] = 'unassigned'
