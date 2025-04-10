@@ -687,13 +687,15 @@ def delete_path_by_id(routeid):
         
         assigned_to = route.get('assigned_to', '')
         delete = False
+        if assigned_to == 'unassigned':
+            delete = True
         if assigned_to == 'driver':
-            driver_routes = db.get_by_filter(driver_routes.table_name, [
+            driver_route = db.get_by_filter(driver_routes.table_name, [
                                 ["route_id", "=", routeid],
                                 ["status", "IN", ['scheduled', "active"]]
                             ], driver_routes.json_fields)
 
-            if driver_routes:
+            if driver_route:
                 raise CustomException("Route is active by driver {0}, cannot be deleted.".format(driver_routes[0].get("driverid", "")))
             delete = True
         if assigned_to == 'marker':
