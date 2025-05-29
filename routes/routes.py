@@ -34,6 +34,7 @@ def create_route():
     }, 400
     try:
         data = request.get_json()
+        logger.info(data)
         adminid = request.userid
         admin_user = request.user
         if admin_user['role'] != 'admin':
@@ -93,6 +94,7 @@ def assign_route():
     }, 400
     try:
         data = request.get_json()
+        logger.info(data)
         adminid = request.userid
         admin_user = request.user
         if admin_user['role'] != 'admin':
@@ -312,6 +314,7 @@ def mark_route():
     try:
         data = request.form.to_dict()
         logger.info(data)
+        logger.info(data)
         userid = request.userid
         user = request.user
         role = user['role']
@@ -518,6 +521,7 @@ def update_checkpoint():
     }, 400
     try:
         data = request.form.to_dict()
+        logger.info(data)
         userid = request.userid
         user = request.user
         role = user['role']
@@ -673,6 +677,7 @@ def delete_path_by_id(routeid):
     }, 400
     try:
         # routeid = request.view_args.get('routeid', None)
+        logger.info(routeid)
         user = request.user
         role = user['role']
         if role != 'admin':
@@ -685,7 +690,7 @@ def delete_path_by_id(routeid):
         if not route:
             raise CustomException("Route does not exist.")
         
-        assigned_to = route.get('assigned_to', '')
+        assigned_to = route.get('assigned_to', 'unassigned')
         delete = False
         if assigned_to == 'unassigned':
             delete = True
@@ -749,6 +754,7 @@ def driver_travel():
     }, 400
     try:
         data = request.get_json()
+        logger.info(data)
         driverid = request.userid
         driver = request.user 
         if driver['role'] != 'driver':

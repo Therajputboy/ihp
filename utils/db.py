@@ -7,9 +7,28 @@ from datetime import datetime
 from utils.memcache import Memcache
 from utils import globalconstants
 from utils.exceptionlogging import ExceptionLogging
+from utils.logging import logger
+import threading
 
-datastore_client = datastore.Client()
-logging.info("Initializing data store client")
+class DatastoreClient:
+    _instance = None
+    _lock = threading.Lock()
+    
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    try:
+                        cls._instance = datastore.Client()
+                        logger.info("Datastore client initialized successfully")
+                    except Exception as e:
+                        logger.error(f"Failed to initialize Datastore client: {str(e)}")
+                        raise
+        return cls._instance
+
+datastore_client = DatastoreClient.get_instance()
+logger.info("Initializing data store client")
 
 
 def measuredb_latency(function_to_decorate):
@@ -17,9 +36,9 @@ def measuredb_latency(function_to_decorate):
         starttime = datetime.utcnow()
         result = function_to_decorate(*args, **kwargs)
         try:
-            logging.info(f'time {((datetime.utcnow() - starttime).total_seconds() * 1000):.2f} ms for {args[0]} - {args[1]}')
+            logger.info(f'time {((datetime.utcnow() - starttime).total_seconds() * 1000):.2f} ms for {args[0]} - {args[1]}')
         except:
-            logging.info(f'time {((datetime.utcnow() - starttime).total_seconds() * 1000):.2f} ms for {args[0]} ')
+            logger.info(f'time {((datetime.utcnow() - starttime).total_seconds() * 1000):.2f} ms for {args[0]} ')
         return result
 
     return a_wrapper_accepting_arbitrary_arguments
@@ -40,7 +59,7 @@ def dict_to_datastore(data, json_fields, other_fields={}):
             try:
                 new_data[key] = json.dumps(new_data[key])
             except Exception as error:
-                logging.info("json parse failed")
+                logger.info("json parse failed")
 
     # for key, value in other_fields.items():
     #     if key in new_data and new_data[key] is not None:
@@ -627,7 +646,7 @@ def multi_batch_save(data_obj, table_name, key_name, exclude_from_indexes, json_
                                            exclude_from_indexes,
                                            json_fields, by_transaction=by_transaction)
     except Exception as error:
-        logging.error(error)
+        logger.error(error)
 
 @measuredb_latency
 # fetch log details between two dates based on type of log and user id or location
@@ -663,8 +682,8 @@ def get_log(userid, typeoflog, start_date, end_date, location=None):
                 location=record.get("location")
             ))
         except Exception as ex:
-            logging.info(record)
-            ExceptionLogging.LogException(traceback.format_exc(), str(ex))
+            logger.info(record)
+            Exceptionlogger.LogException(traceback.format_exc(), str(ex))
 
     return logs
 

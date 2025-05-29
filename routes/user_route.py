@@ -14,6 +14,7 @@ from utils.schemas import users, routes, driver_routes, feedback as feedback_tab
 from utils.email import send_mail
 import random
 import uuid
+from utils.logging import logger
 
 bp_user = Blueprint('bp_user', __name__)
 
@@ -102,7 +103,7 @@ def create_user():
             "message": "Oops! Something went wrong. Please try again."
         }, 400
         data = request.form.to_dict()
-        logging.info(data)
+        logger.info(data)
         userid = data['userid']
         password = data['password']
         confirm_password = data['confirm_password']
@@ -202,7 +203,7 @@ def create_user():
 def login():
     try:
         data = request.get_json()
-        logging.info(data)
+        logger.info(data)
         userid = data['userid']
         password = data['password']
         user = db.get(users.table_name, userid, users.json_fields)
@@ -251,7 +252,7 @@ def login():
 def reset_password():
     try:
         data = request.get_json()
-        logging.info(data)
+        logger.info(data)
         userid = data['userid']
         action = data.get('action', "sendotp")
         user = db.get(users.table_name, userid, users.json_fields)
@@ -346,6 +347,7 @@ def logout():
 def feedback():
     try:
         data = request.form.to_dict()
+        logger.info(data)
         userid = request.userid
         user = db.get(users.table_name, userid, users.json_fields)
         if not user:

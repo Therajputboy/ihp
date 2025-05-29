@@ -1,13 +1,14 @@
 __author__ = "Rohit"
 import logging
+from utils.logging import logger
 
 class ExceptionLogging():
     @staticmethod
     def LogException(exceptionstring, err):
-        logging.error('Exception_Reason:' + str(err))
-        logging.error('Exception_Traceback:' + exceptionstring)
+        logger.error('Exception_Reason:' + str(err))
+        logger.error('Exception_Traceback:' + exceptionstring)
 
     @staticmethod
     def LogWarnException(exceptionstring, err):
-        logging.error('Exception_Reason:' + str(err))
-        logging.error('Exception_Traceback:' + exceptionstring)
+        logger.error('Exception_Reason:' + str(err))
+        logger.error('Exception_Traceback:' + exceptionstring)

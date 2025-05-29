@@ -1,12 +1,17 @@
 import logging
-import json
 import sys
 
-# Configure logging for Cloud Run
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(levelname)s: %(message)s',
-    stream=sys.stdout  # Ensure logs go to stdout for Cloud Run
-)
+# Create logger
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
-logger = logging.getLogger(__name__)
+# Create stdout handler
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+
+# Avoid duplicate handlers
+if not logger.handlers:
+    logger.addHandler(handler)
+
+# Now use logger
+logger.info("App started successfully!")
