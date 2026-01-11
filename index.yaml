@@ -5,6 +5,12 @@ indexes:
     - name: markerid
     - name: created_at
       direction: desc
+
+- kind: Routes
+  properties:
+    - name: markerid
+    - name: created_at
+      direction: desc
     - name: status
 
 - kind: Routes
@@ -17,6 +23,13 @@ indexes:
 - kind: Routes
   properties:
   - name: status
+  - name: created_at
+    direction: desc
+
+- kind: Routes
+  properties:
+  - name: status
+  - name: assigned_to
   - name: created_at
     direction: desc
   
@@ -44,5 +57,17 @@ indexes:
   properties:
   - name: driverid
   - name: status
+  - name: created_at
+    direction: desc
+
+- kind: DriverRoutes
+  properties:
+  - name: status
+  - name: created_at
+    direction: desc
+
+- kind: Routes
+  properties:
+  - name: approved
   - name: created_at
     direction: desc

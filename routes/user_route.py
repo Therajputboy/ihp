@@ -108,14 +108,17 @@ def create_user():
         password = data['password']
         confirm_password = data['confirm_password']
         email = data['email']
+        phone = data['phone']
         role = data['role']
         name = data['name']
-
+        action = data.get("action", "add")
         extras = {}
         if password != confirm_password:
             raise Exception("Passwords do not match.")
         update = False
         check_existing_user = db.get(users.table_name, userid, users.json_fields)
+        if action == "add" and check_existing_user:
+            raise Exception("User already exist")
         if check_existing_user:
             update = True
 
@@ -148,7 +151,7 @@ def create_user():
                      },
                 "updated_data": {
                     'name': name, 'password': password,
-                    'email': email, 'role': role
+                    'email': email, 'role': role, 'phone': phone
                 },
                 "table": users.table_name,
                 "table_id": userid
@@ -159,7 +162,7 @@ def create_user():
         imageurl = ""
         if file:
             file.filename = "users/" + userid + "." + "png"
-            imageurl = upload_file_to_gcs(file, 'ihp-rpp-bucket')
+            imageurl = upload_file_to_gcs(file, 'ihp-gps-bucket', folder="users")
         extras.update({"imageurl": imageurl})
         created_by = request.userid
         new_user = {
@@ -171,7 +174,8 @@ def create_user():
             "created_by": created_by,
             "created_on": datetime.now(pytz.timezone('Asia/Kolkata')),
             "status": 1,
-            "email": email
+            "email": email,
+            'phone': phone
         }
         db.create(
             users.table_name,
@@ -368,7 +372,7 @@ def feedback():
         for index, file in enumerate(request.files):
             file_data = request.files[file]
             file_data.filename = "feedback/" + userid + "/" + feedbackid + "~" + str(index) + "." + "png"
-            imageurl = upload_file_to_gcs(file_data, 'ihp-rpp-bucket')
+            imageurl = upload_file_to_gcs(file_data, 'ihp-gps-bucket')
             new_feedback['extras']['images'].append(imageurl)
         db.create(
             feedback_table.table_name,
@@ -407,7 +411,8 @@ def list_employees():
                 'email': emp.get('email', None),
                 'status': emp.get('status', None),
                 'role': emp.get('role', None),
-                'userid': emp.get('userid', None)
+                'userid': emp.get('userid', None),
+                'phone': emp.get("phone", '')
             } for emp in employees] 
 
         payload.update({"message": "Employees List fetched successfully.",

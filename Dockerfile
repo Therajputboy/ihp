@@ -7,8 +7,8 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     PORT=8080 \
-    ENV=dev \
-    project=ihp-rpp \
+    ENV=prod \
+    project=ihp-gps \
     LOG_LEVEL=INFO
 # Copy the requirements file into the container
 COPY requirements.txt .

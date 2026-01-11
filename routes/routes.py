@@ -40,6 +40,8 @@ def create_route():
         if admin_user['role'] != 'admin':
             raise Exception("Only admin can create a route.")
         route_name = data['route_name']
+        state = data.get("state", "")
+        city = data.get("city", "")
         status = "created"
         if not all([route_name]):
             raise Exception("Route name is required.")
@@ -47,6 +49,8 @@ def create_route():
         new_route = {
             "route_id": route_id,
             "route_name": route_name,
+            "state": state,
+            "city": city,
             "adminid": adminid,
             "created_at": datetime.now(pytz.timezone('Asia/Kolkata')),
             "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
@@ -131,7 +135,8 @@ def assign_route():
                 "status": status,
                 "markerid": memberid,
                 "assigned_to": "marker",
-                "assigned_to_user": memberid
+                "assigned_to_user": memberid,
+                "approved": 0
             })
             db.create(
                 route_table.table_name,
@@ -241,13 +246,22 @@ def list_routes():
             if status == 'driver':
                 all_routes = db.get_by_filter(route_table.table_name, [
                     ["status", "=", "completed"],
+                    ["approved", "=", 1]
                 ], route_table.json_fields, order=["-created_at"])
                 dr = []
                 route_map = {}
                 if all_routes:
-                    dr = db.get_by_filter(driver_routes.table_name,[
-                        ["route_id", "IN", [route.get('route_id', '') for route in all_routes]]
-                    ], driver_routes.json_fields)
+                    all_routeids = [route.get('route_id', '') for route in all_routes]
+                    dr = []
+                    for i in range(0, len(all_routeids), 30):
+                        if len(all_routeids) - i < 30:
+                            dr.extend(db.get_by_filter(driver_routes.table_name,[
+                            ["route_id", "IN", all_routeids[i:] ]
+                            ], driver_routes.json_fields))
+                        else:
+                            dr.extend(db.get_by_filter(driver_routes.table_name,[
+                                ["route_id", "IN", all_routeids[i:i+30] ]
+                            ], driver_routes.json_fields))
                     route_map = {
                         route.get('route_id', ''): route for route in dr if route.get('status', '')
                     }
@@ -264,19 +278,33 @@ def list_routes():
                 routes = all_routes
 
             elif status == 'marker':
-                routes = db.get_by_filter(route_table.table_name, [
+                all_routes = db.get_by_filter(route_table.table_name, [
                     ["status", "!=", "created"],
                     ["assigned_to", "=", "marker"]
                 ], route_table.json_fields, order=["-created_at"])
-                for route in routes:
+                routes = []
+                for route in all_routes:
+                    if route.get('status', '') == 'completed':
+                        continue
                     route['assigned_to'] = [users_map.get(route.get('markerid', ''), {})]
-            else:
+                    routes.append(route)
+                    
+            elif status == 'draft':
                 routes = db.get_by_filter(route_table.table_name, [
                     ["status", "=", "created"]
                 ], order=["-created_at"],
                 json_fields=route_table.json_fields)
+            elif status == 'approval':
+                routes = db.get_by_filter(route_table.table_name, [
+                    ["status", "=", "completed"],
+                    ["approved", "=", 0]
+                ], route_table.json_fields, order=["-created_at"])
                 # routes = [route for route in routes if route.get('status', '') == 'created']
-
+            elif status == 'approved':
+                routes = db.get_by_filter(route_table.table_name, [
+                    ["status", "=", "completed"],
+                    ["approved", "IN", [1,2]]
+                ], route_table.json_fields, order=["-created_at"])
 
         elif role == 'marker':
             fetched_routes = db.get_by_filter(route_table.table_name, [
@@ -324,19 +352,20 @@ def mark_route():
         coordinates = data.get('coordinates', [])
         if isinstance(coordinates, str):
             coordinates = json.loads(coordinates)
-        if role != 'marker':
-            raise CustomException("Only marker can mark a route.")
+        # if role != 'marker':
+        #     raise CustomException("Only marker can mark a route.")
         
-        if role == 'marker':
+        # if role == 'marker':
+        if True:
             route = db.get(route_table.table_name, routeid, route_table.json_fields)
-            if not route:
-                raise CustomException("Route does not exist.")
+            # if not route:
+            #     raise CustomException("Route does not exist.")
             
-            if route['markerid'] != userid:
-                raise CustomException("You are not assigned to this route.")
+            # if route['markerid'] != userid:
+            #     raise CustomException("You are not assigned to this route.")
             
-            if route['status'] == 'completed':
-                raise CustomException("Route is already completed.")
+            # if route['status'] == 'completed':
+            #     raise CustomException("Route is already completed.")
             
             if not status:
                 status = "active"
@@ -399,14 +428,14 @@ def mark_route():
                     coordinate['checkpoint'].update({
                         "id": f'{currentime}~{index}'
                     })
-                    # file = request.files.get(f'checkpoint_{len(index)}', None)
-                    # imageurl = ""
-                    # if file:
-                    #     file.filename = "checkpoints/" + {routeid} + "/" + f'{currentime}~{index}' + "." + "png"
-                    #     imageurl = upload_file_to_gcs(file, 'ihp-rpp-bucket')
-                    #     coordinate['checkpoint'].update({
-                    #         "imageurl": imageurl
-                    #     })
+                    file = request.files.get("checkpoints", None)
+                    imageurl = ""
+                    if file:
+                        file.filename = "checkpoints/" + routeid + "/" + f'{currentime}~{index}' + "." + "png"
+                        imageurl = upload_file_to_gcs(file, 'ihp-gps-bucket', folder="checkpoints")
+                        coordinate['checkpoint'].update({
+                            "imageurl": imageurl
+                        })
                     checkpoints.append(coordinate.pop('checkpoint'))
                     # Handle photo upload and save the image url properly
             paths = route.get('paths', [])
@@ -553,8 +582,8 @@ def update_checkpoint():
                         "location_name": location_name
                     })
                     if image:
-                        image.filename = "checkpoints/" + {routeid} + "/" + checkpoint_id + "." + "png"
-                        imageurl = upload_file_to_gcs(image, 'ihp-rpp-bucket')
+                        image.filename = "checkpoints/" + routeid + "/" + checkpoint_id + "." + "png"
+                        imageurl = upload_file_to_gcs(image, 'ihp-gps-bucket', folder="checkpoints")
                         checkpoint.update({
                             "imageurl": imageurl
                         })
@@ -580,6 +609,7 @@ def update_checkpoint():
                 log_table.json_fields
             )
             route.update({
+                "checkpoints": checkpoints,
                 "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
             })
 
@@ -590,6 +620,9 @@ def update_checkpoint():
                 route_table.exclude_from_indexes,
                 route_table.json_fields
             )
+            return {
+                "message": "Successfully updated checkpoint"
+            }, 200
     except CustomException as e:
         ExceptionLogging.LogException(traceback.format_exc(), e)
         payload.update({"message": str(e.message)})
@@ -940,6 +973,78 @@ def driver_travel():
         payload.update({"message": "Route coordinated saved successfully.",
                         "driver_travelled_coordinates": driver_merged_coordinates})
     
+    except CustomException as e:
+        ExceptionLogging.LogException(traceback.format_exc(), e)
+        payload.update({"message": str(e.message)})
+        return make_response(jsonify(payload), result)
+    
+    except Exception as e:
+        ExceptionLogging.LogException(traceback.format_exc(), e)
+        return make_response(jsonify(payload), result)
+    
+    return make_response(jsonify(payload), result)
+
+
+@bp_route.route('/approve', methods=['POST'])
+@jwt_required
+def approve_route():
+    try:
+        payload, result = {
+            "message": "Oops! Something went wrong. Please try again."
+        }, 400
+        data = request.get_json()
+        logger.info(data)
+        user = request.user
+        role = user['role']
+        if role != 'admin':
+            raise CustomException("Only admin can approve a route.")
+        routeid = data.get('routeid', '')
+        action = data.get('action', '')
+        route = db.get(route_table.table_name, routeid, route_table.json_fields)
+        if not route:
+            raise CustomException("Route does not exist.")
+        if action == "approve":
+            route.update({
+                "approved": 1,
+                "acted_by": request.userid,
+                "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
+            })
+        if action == "reject":
+            route.update({
+                "approved": 2,
+                "acted_by": request.userid,
+                "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
+            })
+        db.create(
+            route_table.table_name,
+            routeid,
+            route,
+            route_table.exclude_from_indexes,
+            route_table.json_fields
+        )
+        log_entry = {
+            "userid": request.userid,
+            "action": "approveroute",
+            "created_at": datetime.now(pytz.timezone('Asia/Kolkata')),
+            "extras": {
+                "route_name": route.get('route_name', ''),
+                "table": route_table.table_name,
+                "table_id": routeid,
+                "status": action
+            }
+        }
+        db.create(
+            log_table.table_name,
+            None,
+            log_entry,
+            log_table.exclude_from_indexes,
+            log_table.json_fields
+        )
+        payload = {
+            "message": f"Route {action}ed successfully.",
+            "route": route
+        }
+        result = 200
     except CustomException as e:
         ExceptionLogging.LogException(traceback.format_exc(), e)
         payload.update({"message": str(e.message)})
