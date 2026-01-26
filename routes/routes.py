@@ -9,7 +9,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 import pytz
 from utils import db
-from utils.schemas import users, routes as route_table, marked_routes, driver_routes, log_table, driver_travelled_path
+from utils.schemas import users, routes as route_table, marked_routes, driver_routes, log_table, driver_travelled_path, trucks
 import uuid, json
 from utils.globalconstants import CustomException
 from utils.logging import logger
@@ -111,16 +111,23 @@ def assign_route():
         
         assigned_to = data.get('assigned_to', {})
         assigning_role = assigned_to.get('role', None)
-        memberid = assigned_to.get('member', None)
+        memberids = assigned_to.get('member', [])
+        old_members = assigned_to.get("old_members", [])
+        truckid = data.get("truckid")
+        if not isinstance(memberids, list):
+            memberids = list(memberids)
+
         status = "scheduled"
         if not all([route_id, assigned_to]):
             raise CustomException("Route id and member id are required.")
         
-        member = db.get(users.table_name, memberid, users.json_fields)
-        if not member:
+        members = db.get_by_filter(users.table_name, [["userid", "IN", memberids]], users.json_fields)
+        if not members:
             raise CustomException("Member does not exist.")
         
         if assigning_role == 'marker':
+            member = members[0]
+            memberid = memberids[0]
             if route['status'] not in  ['created', 'scheduled']:
                 raise CustomException("Marker already assigned.")
             
@@ -145,23 +152,47 @@ def assign_route():
                 route_table.exclude_from_indexes,
                 route_table.json_fields
             )
-        elif assigning_role == 'driver':                
-            if member['role'] != 'driver':
-                raise CustomException("Member is not a driver.")
+        elif assigning_role == 'driver':  
+            for member in members:              
+                if member['role'] != 'driver':
+                    raise CustomException("Member is not a driver.")
             
             statushistory = [status + "@" + datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d %H:%M:%S")]
 
-            driver_route = db.get_by_filter(driver_routes.table_name, [
+            drivers_route = db.get_by_filter(driver_routes.table_name, [
                 ["route_id", "=", route_id],
-                ["driverid", "=", memberid],
                 ["status", "IN", ["scheduled", "active", "created"]]
             ], driver_routes.json_fields)
-            if driver_route:
-                db.delete(driver_routes.table_name, driver_route[0].get('driver_route_id', ''))
+            if drivers_route:
+                for driver_route in drivers_route:
+                    driverids = driver_route.get("driverid", [])
+                    if not isinstance(driverids, list):
+                        driverids = list(driverids)
+                    for member in old_members:
+                        if member in driverids:
+                            db.delete(driver_routes.table_name, driver_route.get('driver_route_id', ''))
+                            log_entry={
+                                "userid": adminid,
+                                "action": "deleteassigned_driverroute",
+                                "created_at": datetime.now(pytz.timezone('Asia/Kolkata')),
+                                "extras": {
+                                    "route_name": route.get('route_name', ''),
+                                    "table": driver_routes.table_name,
+                                    "table_id": driver_route.get('driver_route_id', '')
+                                }
+                            }
+                            db.create(
+                                log_table.table_name,
+                                None,
+                                log_entry,
+                                log_table.exclude_from_indexes,
+                                log_table.json_fields
+                            )
+
             driver_route_id = uuid.uuid4().hex
             driver_route = {
                 "route_id": route_id,
-                "driverid": memberid,
+                "driverid": memberids,
                 "status": status,
                 "created_at": datetime.now(pytz.timezone('Asia/Kolkata')),
                 "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
@@ -169,13 +200,15 @@ def assign_route():
                 "driver_route_id": driver_route_id,
                 "extras": {
                     "route_data": route
-                }
+                },
+                "truckid": truckid
+                # "date": int(datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y%m%d"))
             }
             route.update({
                 "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
-                "recent_driver": memberid,
+                "recent_driver": memberids,
                 "assigned_to": "driver",
-                "assigned_to_user": memberid
+                "assigned_to_user": memberids
             })
             db.create(
                 driver_routes.table_name,
@@ -184,7 +217,6 @@ def assign_route():
                 driver_routes.exclude_from_indexes,
                 driver_routes.json_fields
             )
-
             db.create(
                 route_table.table_name,
                 route_id,
@@ -192,16 +224,33 @@ def assign_route():
                 route_table.exclude_from_indexes,
                 route_table.json_fields
             )
+
+            truck = db.get(
+                trucks.table_name,
+                truckid,
+                trucks.json_fields
+            )
+            truck.update({
+                "assigned": 1
+            })
+            db.create(
+                trucks.table_name,
+                truckid,
+                truck,
+                trucks.exclude_from_indexes,
+                trucks.json_fields
+            )
         log_entry={
             "userid": adminid,
-            "action": "assignroute",
+            "action": "assignroute" if data.get("action", "assign") else "reassignroute",
             "created_at": datetime.now(pytz.timezone('Asia/Kolkata')),
             "extras": {
                 "route_name": route.get('route_name', ''),
                 "table": route_table.table_name,
                 "table_id": route_id,
                 "assigned_to": assigning_role,
-                "assigned_member": memberid
+                "assigned_member": memberids,
+                "truckid": truckid
             }
         }
         db.create(
@@ -237,6 +286,8 @@ def list_routes():
         user = request.user
         role = user['role']
         status = request.args.get('status', '')
+        key = request.args.get("key", "")
+        route_id = key.split("~")[0]
         all_users = db.get_all(users.table_name, users.json_fields)
         users_map = {}
         for u in all_users:
@@ -319,7 +370,7 @@ def list_routes():
                 routes.append(route)
         elif role == 'driver':
             routes = db.get_by_filter(driver_routes.table_name, [
-                ["driverid", "=", userid],
+                ["route_id", "=", route_id],
                 ["status", "=", status]
             ], driver_routes.json_fields, order=["-created_at"])
 
@@ -958,6 +1009,7 @@ def driver_travel():
         driver_merged_coordinates = []
         # driver_route = driver_route[0]
         paths = driver_route.get('paths', [])
+        truckid = driver_route.get("truckid")
         driver_paths = db.get_multi_by_key(driver_travelled_path.table_name, paths, driver_travelled_path.json_fields)
 
         driver_paths_map = {}
@@ -972,7 +1024,23 @@ def driver_travel():
         result = 200
         payload.update({"message": "Route coordinated saved successfully.",
                         "driver_travelled_coordinates": driver_merged_coordinates})
-    
+        if status == "completed":
+            if truckid:
+                truck = db.get(
+                    trucks.table_name,
+                    truckid,
+                    trucks.json_fields
+                )
+                truck.update({
+                    "assigned": 0
+                })
+                db.create(
+                    trucks.table_name,
+                    truckid,
+                    truck,
+                    trucks.exclude_from_indexes,
+                    trucks.json_fields
+                )
     except CustomException as e:
         ExceptionLogging.LogException(traceback.format_exc(), e)
         payload.update({"message": str(e.message)})

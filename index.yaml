@@ -62,6 +62,13 @@ indexes:
 
 - kind: DriverRoutes
   properties:
+  - name: route_id
+  - name: created_at
+    direction: desc
+  - name: status
+
+- kind: DriverRoutes
+  properties:
   - name: status
   - name: created_at
     direction: desc

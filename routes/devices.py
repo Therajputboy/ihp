@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from utils.jwt import jwt_required
 from utils import db
-from utils.schemas import devices as device_table
+from utils.schemas import devices as device_table, device_mapping
 from datetime import datetime
 import pytz
 import uuid
@@ -31,7 +31,7 @@ def create_device():
             "device_name": device_name,
             "purchase_date": datetime.strptime(purchase_date, "%d-%m-%Y"),
             "brand_and_model": brand_and_model,
-            "status": data.get("status", 0),
+            "status": data.get("status", 1),
             "extras": data.get('extras', {}),
             "created_at": datetime.now(pytz.timezone('Asia/Kolkata')),
             "updated_at": datetime.now(pytz.timezone('Asia/Kolkata'))
@@ -78,7 +78,7 @@ def update_device(device_number):
             "device_name": device_name,
             "purchase_date": datetime.strptime(purchase_date, "%d-%m-%Y"),
             "brand_and_model": brand_and_model,
-            "status": data.get("status", 0),
+            "status": data.get("status", 1),
             "extras": data.get('extras', {}),
             "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
             "created_by": request.userid
@@ -108,7 +108,7 @@ def delete_device(device_number):
     
 
 @bp_device.route('/list', methods=['GET'])
-@jwt_required
+# @jwt_required
 def list_devices():
     try:
         # Optional filters (e.g., status or phone)
@@ -117,18 +117,41 @@ def list_devices():
 
         # Build filters dynamically
         filters = []
-        if status:
-            filters.append(["status", "=", status])
+        if status is not None:
+            filters.append(["status", "=", int(status)])
         if phone:
             filters.append(["phone", "=", phone])
 
         # Fetch devices from the database
         devices = db.get_by_filter(
             device_table.table_name,
-            filters=filters,
-            fields=device_table.json_fields,
-            order=["-created_at"]
+            filters,
+            device_table.json_fields
+            # order=["-created_at"]
         )
+        dms = db.get_by_filter(
+            device_mapping.table_name,
+            [
+                ["active", "=", True]
+            ],
+            device_mapping.json_fields
+        )
+        active_devices = {}
+        for dm in dms:
+            device_number = dm.get("device_number")
+            if device_number not in active_devices:
+                active_devices[device_number] = {
+                    "device_number": device_number,
+                    "truckid": dm.get("truckid"),
+                    "registration_number": dm.get("extras", {}).get("registration_number", ""),
+                    "drivers": dm.get("extras", {}).get("drivers", []) 
+                }
+        for device in devices:
+            device_number = device.get("device_number")
+            if device_number in active_devices:
+                device.update(
+                    active_devices[device_number]
+                )
 
         return jsonify({
             "message": "Devices listed successfully",

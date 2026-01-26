@@ -10,11 +10,12 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 import pytz
 from utils import db
-from utils.schemas import users, routes, driver_routes, feedback as feedback_table, log_table
+from utils.schemas import users, routes, driver_routes, feedback as feedback_table, log_table, device_mapping
 from utils.email import send_mail
 import random
 import uuid
 from utils.logging import logger
+from routes.trucks import truck_detail
 
 bp_user = Blueprint('bp_user', __name__)
 
@@ -210,16 +211,17 @@ def login():
         logger.info(data)
         userid = data['userid']
         password = data['password']
+
         user = db.get(users.table_name, userid, users.json_fields)
         if not user:
             raise Exception("User does not exist.")
         if not( user and check_password_hash(user['password'], password) and user['status'] == 1):
             raise Exception("Password is incorrect.")
-        data = {
+        payload = {
             "message": "Login successful.",
             "user": user,
             "role": user['role']
-        }   
+        }  
         sessionid = uuid.uuid4().hex
         user['sessionid'] = sessionid
         db.create(
@@ -230,6 +232,28 @@ def login():
             users.json_fields
         )
         result = 200
+        if user["role"] == "driver":
+            device_number = data['device_number']
+            truckid = data["truckid"]
+            truck = truck_detail(truckid)
+
+            mapping = {
+                "truckid": truckid,
+                "route_id": truck.get("route_id", ""),
+                "device_number": device_number,
+                "active": True,
+                "extras": truck,
+                "created_date": datetime.now(tz=pytz.timezone("Asia/Kolkata"))
+            }
+            key = truck.get("route_id", "") + "~" + device_number + "~" + truckid
+            payload.update({"key": key})
+            db.create(
+                device_mapping.table_name,
+                key,
+                mapping,
+                device_mapping.exclude_from_indexes,
+                device_mapping.json_fields
+            )
         jwt_payload = {
             "userid": userid,
             "role": user['role'],
@@ -237,16 +261,16 @@ def login():
             "sessionid": sessionid
         }
         cookie = generate_jwt_token(jwt_payload)
-        data.update({"token": cookie})
-        resp = make_response(jsonify(data), result)
+        payload.update({"token": cookie})
+        resp = make_response(jsonify(payload), result)
         resp.set_cookie('cookie', cookie)
     except Exception as e:
         ExceptionLogging.LogException(traceback.format_exc(), str(e))
-        data = {
+        payload = {
             "message": str(e)
         }
         result = 400
-        return jsonify(data), result
+        return jsonify(payload), result
     return resp
 
 
@@ -317,7 +341,7 @@ def reset_password():
         result = 400
     return jsonify(data), result
 
-@bp_user.route('/logout', methods=['POST'])
+@bp_user.route('/logout', methods=['GET'])
 @jwt_required
 def logout():
     try:
@@ -328,6 +352,22 @@ def logout():
         userid = request.userid
         user = db.get(users.table_name, userid, users.json_fields)
         user['sessionid'] = None
+        key = request.args.get("key")
+        dm = db.get(
+            device_mapping.table_name,
+            key,
+            device_mapping.json_fields
+        )
+        dm.update({
+            "active": False
+        })
+        db.create(
+            device_mapping.table_name,
+            key,
+            dm,
+            device_mapping.exclude_from_indexes,
+            device_mapping.json_fields
+        )
         db.create(
             users.table_name,
             userid,

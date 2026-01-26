@@ -6,6 +6,7 @@ from datetime import datetime
 import pytz
 import uuid
 from datetime import datetime
+from utils.schemas import driver_routes, users
 
 bp_truck = Blueprint('bp_truck', __name__)
 
@@ -36,11 +37,12 @@ def create_truck():
             "insurance_validity": insurance_validity,
             "load_capacity": load_capacity,
             "make_and_model": make_and_model,
-            "status": data.get('status', 0),
+            "status": data.get('status', 1),
             "extras": data.get('extras', {}),
             "created_at": datetime.now(pytz.timezone('Asia/Kolkata')),
             "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
-            "created_by": request.userid
+            "created_by": request.userid,
+            "assigned": 0
         }
         db.create(
             truck_table.table_name,
@@ -57,12 +59,51 @@ def create_truck():
 @jwt_required
 def read_truck(truckid):
     try:
-        truck = db.get(truck_table.table_name, truckid, truck_table.json_fields)
-        if not truck:
-            return jsonify({"message": "Truck not found"}), 400
-        return jsonify({"truck": truck}), 200
+        truck = truck_detail(truckid)
+        return {"truck": truck}, 200
     except Exception as e:
         return jsonify({"message": str(e)}), 400
+    
+
+def truck_detail(truckid):
+    truck = db.get(truck_table.table_name, truckid, truck_table.json_fields)
+    if not truck:
+        return jsonify({"message": "Truck not found"}), 400
+    assigned = truck.get("assigned", 0)
+    if assigned:
+        scheduled_driver_routes = db.get_by_filter(
+            driver_routes.table_name,
+            [
+                ["truckid","=", truckid],
+                ["status", "=", "scheduled"]
+            ],
+            driver_routes.json_fields
+        )
+        if not scheduled_driver_routes:
+            raise Exception("Truck not assigned to any route.")
+        scheduled_driver_routes = scheduled_driver_routes[0]
+        driverids = scheduled_driver_routes.get("driverid", [])
+        drivers = db.get_by_filter(
+            users.table_name,
+            [["userid", "IN", driverids],
+            ["status", "=", 1]],
+            users.json_fields
+        )
+        drivers = [
+            {
+                "userid": driver.get("userid"),
+                "name": driver.get("name"),
+                "phone": driver.get("phone"),
+            } for driver in drivers
+        ]
+        truck.update({
+            "drivers": drivers,
+            "driver_route_id": scheduled_driver_routes.get("driver_route_id"),
+            "route_id": scheduled_driver_routes.get("route_id")
+        })
+    
+    return truck
+    
 
 @bp_truck.route('/update/<truckid>', methods=['PUT'])
 @jwt_required
@@ -90,7 +131,7 @@ def update_truck(truckid):
             "insurance_validity": insurance_validity,
             "load_capacity": load_capacity,
             "make_and_model": make_and_model,
-            "status": data.get('status', 0),
+            "status": data.get('status', 1),
             "extras": data.get('extras', {}),
             "updated_at": datetime.now(pytz.timezone('Asia/Kolkata'))
         })
@@ -118,28 +159,26 @@ def delete_truck(truckid):
         return jsonify({"message": str(e)}), 400
     
 @bp_truck.route('/list', methods=['GET'])
-@jwt_required
+# @jwt_required
 def list_trucks():
     try:
         # Optional filters (e.g., status or truck_number)
         status = request.args.get('status')
-        truck_number = request.args.get('truck_number')
+        assigned = request.args.get("assigned")
 
         # Build filters dynamically
         filters = []
-        if status:
-            filters.append(["status", "=", status])
-        if truck_number:
-            filters.append(["truck_number", "=", truck_number])
+        if status != None:
+            filters.append(["status", "=", int(status)])
+        if assigned != None:
+            filters.append(["assigned", "=", int(assigned)])
 
         # Fetch trucks from the database
         trucks = db.get_by_filter(
             truck_table.table_name,
-            filters=filters,
-            fields=truck_table.json_fields,
-            order=["-created_at"]
+            filters,
+            truck_table.json_fields
         )
-
         return jsonify({
             "message": "Trucks listed successfully",
             "trucks": trucks
