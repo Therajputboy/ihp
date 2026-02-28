@@ -56,7 +56,7 @@ def create_truck():
         return jsonify({"message": str(e)}), 400
 
 @bp_truck.route('/read/<truckid>', methods=['GET'])
-@jwt_required
+# @jwt_required
 def read_truck(truckid):
     try:
         truck = truck_detail(truckid)

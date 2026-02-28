@@ -291,7 +291,7 @@ def list_routes():
         all_users = db.get_all(users.table_name, users.json_fields)
         users_map = {}
         for u in all_users:
-            uid = user.get('userid', '')
+            uid = u.get('userid', '')
             users_map[uid] = u
         if role == 'admin':
             if status == 'driver':
@@ -323,9 +323,10 @@ def list_routes():
                         route['status'] = route_map.get(route.get('route_id', ''), {}).get('status', 'unassigned')
                         route['assigned_to'] = []
                         if route['status'] != 'unassigned':
-                            route['assigned_to'].append(users_map.get(route_map.get(route.get('route_id', ''), {}).get('driverid', ''), {}))
-                            salespersons = route_map.get('extras', {}).get('salespersons', [])
-                            route['assigned_to'].extend([users_map.get(sp, {}) for sp in salespersons])
+                            drivers_assigned = route_map.get(route.get('route_id', ''), {}).get('driverid', '')
+                            if not isinstance(drivers_assigned, list):
+                                drivers_assigned = [drivers_assigned]
+                            route['assigned_to'].extend([users_map.get(da, {}) for da in drivers_assigned])
                 routes = all_routes
 
             elif status == 'marker':
@@ -912,6 +913,7 @@ def driver_travel():
         if status == 'completed':
             route_data.update({
                 "assigned_to": "unassigned",
+                "assigned_to_user": []
             })
         currentime = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y%m%d%H%M%S")
         checkpoints_covered = []
