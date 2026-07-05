@@ -69,8 +69,27 @@ indexes:
 
 - kind: DriverRoutes
   properties:
+  - name: truckid
+  - name: created_at
+    direction: desc
+  - name: status
+
+- kind: DriverRoutes
+  properties:
+  - name: truckid
+  - name: created_at
+    direction: desc
+
+- kind: DriverRoutes
+  properties:
   - name: status
   - name: created_at
+    direction: desc
+
+- kind: DriverRoutes
+  properties:
+  - name: status
+  - name: updated_at
     direction: desc
 
 - kind: Routes

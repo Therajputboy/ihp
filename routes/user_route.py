@@ -211,6 +211,7 @@ def login():
         logger.info(data)
         userid = data['userid']
         password = data['password']
+        drivers=data.get("drivers", "")
 
         user = db.get(users.table_name, userid, users.json_fields)
         if not user:
@@ -246,6 +247,8 @@ def login():
                 "created_date": datetime.now(tz=pytz.timezone("Asia/Kolkata"))
             }
             key = truck.get("route_id", "") + "~" + device_number + "~" + truckid
+            for d in drivers.split(","):
+                key += "~" + d
             payload.update({"key": key})
             db.create(
                 device_mapping.table_name,

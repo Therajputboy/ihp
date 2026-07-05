@@ -208,7 +208,8 @@ def assign_route():
                 "updated_at": datetime.now(pytz.timezone('Asia/Kolkata')),
                 "recent_driver": memberids,
                 "assigned_to": "driver",
-                "assigned_to_user": memberids
+                "assigned_to_user": memberids,
+                "truckid": truckid
             })
             db.create(
                 driver_routes.table_name,
@@ -357,7 +358,27 @@ def list_routes():
                     ["status", "=", "completed"],
                     ["approved", "IN", [1,2]]
                 ], route_table.json_fields, order=["-created_at"])
+            alltruckids = []
+            for r in routes:
+                truckid = r.get("truckid")
+                if truckid:
+                    alltruckids.append(truckid)
+                    continue
 
+            alltrucks = db.get_multi_by_key(
+                route_table.table_name,
+                alltruckids,
+                route_table.json_fields
+            )
+            truck_map = {}
+            for truck in alltrucks:
+                truckid = truck.get("truckid", "")
+                if truckid and truckid not in truck_map:
+                    truck_map[truckid] = truck
+            for r in routes:
+                truckid = r.get("truckid")
+                r["truck_details"] = truck_map.get(truckid, {})
+                
         elif role == 'marker':
             fetched_routes = db.get_by_filter(route_table.table_name, [
                 ["markerid", "=", userid],
@@ -370,10 +391,18 @@ def list_routes():
                     continue
                 routes.append(route)
         elif role == 'driver':
-            routes = db.get_by_filter(driver_routes.table_name, [
-                ["route_id", "=", route_id],
+            key_parts = key.split("~")
+            truckid = key_parts[2]
+            drivers = key_parts[3:]
+            f_routes = db.get_by_filter(driver_routes.table_name, [
+                ["truckid", "=", truckid],
                 ["status", "=", status]
             ], driver_routes.json_fields, order=["-created_at"])
+            routes = []
+            for route in f_routes:
+                if sorted(route.get("driverid", [])) == sorted(drivers):
+                    routes.append(route)
+
 
         payload.update({"message": "Routes listed successfully.",
                         "routes": routes,
@@ -468,6 +497,7 @@ def mark_route():
                 route.update({
                     "completed_at": datetime.now(pytz.timezone('Asia/Kolkata')),
                     "assigned_to": "unassigned",
+                    "assigned_to_user": []
                 })
 
             currentime = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y%m%d%H%M%S")
@@ -924,8 +954,10 @@ def driver_travel():
             checkpoint_id = coordinate.get('checkpoint_id', None)
             if checkpoint_id:
                 checkpoints_covered.append(checkpoint_id)
-        
-        driver_route["checkpoints_covered"] = driver_route.get("checkpoints_covered", []) + checkpoints_covered
+
+        existing_checkpoints = driver_route.get("checkpoints_covered", [])
+        new_checkpoints = [cp for cp in checkpoints_covered if cp not in existing_checkpoints]
+        driver_route["checkpoints_covered"] = existing_checkpoints + new_checkpoints
         paths = driver_route.get('paths', [])
         if not paths:
             driver_route_path_id = f'{driver_route_id}~{0}'

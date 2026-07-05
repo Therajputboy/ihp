@@ -46,3 +46,5 @@ urllib3==1.26.20
 Werkzeug==2.3.7
 wrapt==1.15.0
 flask-cors
+openpyxl==3.1.2
+reportlab==4.0.4

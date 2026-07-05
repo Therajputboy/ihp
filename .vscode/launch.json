@@ -6,6 +6,8 @@
     "configurations": [
 
 
+
+
     
 
 
@@ -37,6 +39,28 @@
             "type": "debugpy",
             "request": "launch",
             "program": "app.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONUNBUFFERED": "1",
+                "GOOGLE_APPLICATION_CREDENTIALS": "/Users/rohitsinghrajput/Desktop/Projects/IHP/credentials/ihp-gps.json",
+                "ENV": "prod",
+                "EMAIL": "rksinghkatras1234@gmail.com",
+                "PASSWORD": "r1234abcd",
+            },
+            "args": [
+                "run",
+                "--no-debugger",
+                "--no-reload"
+            ],
+            "jinja": true,
+            "autoStartBrowser": false
+        },
+        {
+            "name": "Prod-script",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "scripts/complete-routes.py",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "env": {
