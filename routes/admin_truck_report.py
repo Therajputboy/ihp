@@ -42,29 +42,40 @@ def get_truck_report_summary():
         from_date_str = request.args.get('from_date', '')
         to_date_str = request.args.get('to_date', '')
 
-        # Parse dates
-        from_date = datetime.strptime(from_date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC) if from_date_str else None
-        to_date = datetime.strptime(to_date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC) if to_date_str else None
-
-        if to_date:
-            to_date = to_date.replace(hour=23, minute=59, second=59)
+        # Parse dates (convert from Asia/Kolkata to UTC)
+        from_date = None
+        to_date = None
+        if from_date_str:
+            from_date_kolkata = datetime.strptime(from_date_str, "%Y-%m-%d").replace(tzinfo=pytz.timezone('Asia/Kolkata'))
+            from_date = from_date_kolkata.astimezone(pytz.UTC)
+        if to_date_str:
+            to_date_kolkata = datetime.strptime(to_date_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=pytz.timezone('Asia/Kolkata'))
+            to_date = to_date_kolkata.astimezone(pytz.UTC)
 
         # Get all trucks
         all_trucks = db.get_all(trucks.table_name, trucks.json_fields)
         trucks_map = {t.get('truckid', ''): t for t in all_trucks}
 
-        # Get all driver routes
-        all_driver_routes = db.get_all(driver_routes.table_name, driver_routes.json_fields)
+        # Build filters for driver routes
+        # Required Firestore Index:
+        # Collection: DriverRoutes
+        # Fields:
+        #   - status (Ascending)
+        #   - updated_at (Descending)
+        filters = [["status", "IN", ["completed", "active"]]]
 
-        # Get completed routes
-        completed_routes = db.get_by_filter(
-            route_table.table_name,
-            [["status", "=", "completed"], ["approved", "=", 1]],
-            route_table.json_fields,
-            order=["-created_at"]
+        if from_date:
+            filters.append(["updated_at", ">=", from_date])
+        if to_date:
+            filters.append(["updated_at", "<=", to_date])
+
+        # Get driver routes filtered by status and date range
+        all_driver_routes = db.get_by_filter(
+            driver_routes.table_name,
+            filters,
+            driver_routes.json_fields,
+            order=["-updated_at"]
         )
-
-        route_map = {route.get('route_id', ''): route for route in completed_routes}
 
         total_distance = 0.0
         truck_ids_set = set()
@@ -78,18 +89,10 @@ def get_truck_report_summary():
             truck_ids_set.add(truckid)
 
             route_id = driver_route.get('route_id', '')
-            route = route_map.get(route_id, {})
+            route = db.get(route_table.table_name, route_id, route_table.json_fields)
 
             if not route:
                 continue
-
-            # Filter by date range
-            completed_at = route.get('completed_at')
-            if completed_at:
-                if from_date and completed_at < from_date:
-                    continue
-                if to_date and completed_at > to_date:
-                    continue
 
             truck = trucks_map.get(truckid, {})
             actual_distance = truck.get('actual_distance', truck.get('distance', 0))
@@ -155,12 +158,15 @@ def get_truck_report():
         to_date_str = request.args.get('to_date', '')
         truck_id = request.args.get('truck_id', '')
 
-        # Parse dates
-        from_date = datetime.strptime(from_date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC) if from_date_str else None
-        to_date = datetime.strptime(to_date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC) if to_date_str else None
-
-        if to_date:
-            to_date = to_date.replace(hour=23, minute=59, second=59)
+        # Parse dates (convert from Asia/Kolkata to UTC)
+        from_date = None
+        to_date = None
+        if from_date_str:
+            from_date_kolkata = datetime.strptime(from_date_str, "%Y-%m-%d").replace(tzinfo=pytz.timezone('Asia/Kolkata'))
+            from_date = from_date_kolkata.astimezone(pytz.UTC)
+        if to_date_str:
+            to_date_kolkata = datetime.strptime(to_date_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=pytz.timezone('Asia/Kolkata'))
+            to_date = to_date_kolkata.astimezone(pytz.UTC)
 
         # Get all users for mapping
         all_users = db.get_all(users.table_name, users.json_fields)
@@ -170,24 +176,26 @@ def get_truck_report():
         all_trucks = db.get_all(trucks.table_name, trucks.json_fields)
         trucks_map = {t.get('truckid', ''): t for t in all_trucks}
 
-        # Get completed driver routes (these have truck assignments)
+        # Build filters for driver routes
+        # Required Firestore Index:
+        # Collection: DriverRoutes
+        # Fields:
+        #   - status (Ascending)
+        #   - updated_at (Descending)
+        filters = [["status", "IN", ["completed", "active"]]]
+
+        if from_date:
+            filters.append(["updated_at", ">=", from_date])
+        if to_date:
+            filters.append(["updated_at", "<=", to_date])
+
+        # Get driver routes filtered by status and date range
         all_driver_routes = db.get_by_filter(
             driver_routes.table_name,
-            [["status", "=", "completed"]],
+            filters,
             driver_routes.json_fields,
             order=["-updated_at"]
         )
-
-        # Get completed routes for additional details
-        completed_routes = db.get_by_filter(
-            route_table.table_name,
-            [["status", "=", "completed"], ["approved", "=", 1]],
-            route_table.json_fields,
-            order=["-created_at"]
-        )
-
-        # Build route map
-        route_map = {route.get('route_id', ''): route for route in completed_routes}
 
         # Build report data and calculate statistics
         report_data = []
@@ -207,18 +215,12 @@ def get_truck_report():
             truck_ids_set.add(truckid)
 
             route_id = driver_route.get('route_id', '')
-            route = route_map.get(route_id, {})
+            route = db.get(route_table.table_name, route_id, route_table.json_fields)
 
             if not route:
                 continue
 
-            # Filter by date range
             completed_at = route.get('completed_at')
-            if completed_at:
-                if from_date and completed_at < from_date:
-                    continue
-                if to_date and completed_at > to_date:
-                    continue
 
             truck = trucks_map.get(truckid, {})
             truck_number = truck.get('registration_number') or truck.get('truck_number') or truckid or 'N/A'
@@ -244,6 +246,8 @@ def get_truck_report():
             damage_status = "Yes" if damage_reported else "No"
             truck_status = truck.get('status', 'Active')
 
+            driver_route_id = driver_route.get('driver_route_id', '')
+
             report_data.append({
                 'truck_number': truck_number,
                 'date': completed_at.strftime('%d/%m/%Y') if completed_at else 'N/A',
@@ -256,7 +260,8 @@ def get_truck_report():
                 'damage_reported': damage_status,
                 'status': truck_status,
                 'truckid': truckid,
-                'route_id': route_id
+                'route_id': route_id,
+                'driver_route_id': driver_route_id
             })
 
         payload.update({
@@ -306,11 +311,15 @@ def export_truck_report_excel():
         to_date = request.args.get('to_date', '')
         truck_id = request.args.get('truck_id', '')
 
-        # Build report data
-        from_date_obj = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=pytz.UTC) if from_date else None
-        to_date_obj = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=pytz.UTC) if to_date else None
-        if to_date_obj:
-            to_date_obj = to_date_obj.replace(hour=23, minute=59, second=59)
+        # Parse dates (convert from Asia/Kolkata to UTC)
+        from_date_obj = None
+        to_date_obj = None
+        if from_date:
+            from_date_kolkata = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=pytz.timezone('Asia/Kolkata'))
+            from_date_obj = from_date_kolkata.astimezone(pytz.UTC)
+        if to_date:
+            to_date_kolkata = datetime.strptime(to_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=pytz.timezone('Asia/Kolkata'))
+            to_date_obj = to_date_kolkata.astimezone(pytz.UTC)
 
         all_users = db.get_all(users.table_name, users.json_fields)
         users_map = {u.get('userid', ''): u for u in all_users}
@@ -318,16 +327,21 @@ def export_truck_report_excel():
         all_trucks = db.get_all(trucks.table_name, trucks.json_fields)
         trucks_map = {t.get('truckid', ''): t for t in all_trucks}
 
-        all_driver_routes = db.get_all(driver_routes.table_name, driver_routes.json_fields)
+        # Build filters for driver routes
+        filters = [["status", "IN", ["completed", "active"]]]
 
-        completed_routes = db.get_by_filter(
-            route_table.table_name,
-            [["status", "=", "completed"], ["approved", "=", 1]],
-            route_table.json_fields,
-            order=["-created_at"]
+        if from_date_obj:
+            filters.append(["updated_at", ">=", from_date_obj])
+        if to_date_obj:
+            filters.append(["updated_at", "<=", to_date_obj])
+
+        # Get driver routes filtered by status and date range
+        all_driver_routes = db.get_by_filter(
+            driver_routes.table_name,
+            filters,
+            driver_routes.json_fields,
+            order=["-updated_at"]
         )
-
-        route_map = {route.get('route_id', ''): route for route in completed_routes}
 
         report_data = []
         for driver_route in all_driver_routes:
@@ -338,16 +352,11 @@ def export_truck_report_excel():
                 continue
 
             route_id = driver_route.get('route_id', '')
-            route = route_map.get(route_id, {})
+            route = db.get(route_table.table_name, route_id, route_table.json_fields)
             if not route:
                 continue
 
             completed_at = route.get('completed_at')
-            if completed_at:
-                if from_date_obj and completed_at < from_date_obj:
-                    continue
-                if to_date_obj and completed_at > to_date_obj:
-                    continue
 
             truck = trucks_map.get(truckid, {})
             truck_number = truck.get('registration_number') or truck.get('truck_number') or truckid or 'N/A'
@@ -367,6 +376,8 @@ def export_truck_report_excel():
             damage_status = "Yes" if damage_reported else "No"
             truck_status = truck.get('status', 'Active')
 
+            driver_route_id = driver_route.get('driver_route_id', '')
+
             report_data.append({
                 'truck_number': truck_number,
                 'date': completed_at.strftime('%d/%m/%Y') if completed_at else 'N/A',
@@ -379,7 +390,8 @@ def export_truck_report_excel():
                 'damage_reported': damage_status,
                 'status': truck_status,
                 'truckid': truckid,
-                'route_id': route_id
+                'route_id': route_id,
+                'driver_route_id': driver_route_id
             })
 
         # Create Excel workbook
@@ -506,11 +518,15 @@ def export_truck_report_pdf():
         truck_id = request.args.get('truck_id', '')
         company_logo = request.args.get('company_logo', '')
 
-        # Build report data
-        from_date_obj = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=pytz.UTC) if from_date else None
-        to_date_obj = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=pytz.UTC) if to_date else None
-        if to_date_obj:
-            to_date_obj = to_date_obj.replace(hour=23, minute=59, second=59)
+        # Parse dates (convert from Asia/Kolkata to UTC)
+        from_date_obj = None
+        to_date_obj = None
+        if from_date:
+            from_date_kolkata = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=pytz.timezone('Asia/Kolkata'))
+            from_date_obj = from_date_kolkata.astimezone(pytz.UTC)
+        if to_date:
+            to_date_kolkata = datetime.strptime(to_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=pytz.timezone('Asia/Kolkata'))
+            to_date_obj = to_date_kolkata.astimezone(pytz.UTC)
 
         all_users = db.get_all(users.table_name, users.json_fields)
         users_map = {u.get('userid', ''): u for u in all_users}
@@ -518,16 +534,21 @@ def export_truck_report_pdf():
         all_trucks = db.get_all(trucks.table_name, trucks.json_fields)
         trucks_map = {t.get('truckid', ''): t for t in all_trucks}
 
-        all_driver_routes = db.get_all(driver_routes.table_name, driver_routes.json_fields)
+        # Build filters for driver routes
+        filters = [["status", "IN", ["completed", "active"]]]
 
-        completed_routes = db.get_by_filter(
-            route_table.table_name,
-            [["status", "=", "completed"], ["approved", "=", 1]],
-            route_table.json_fields,
-            order=["-created_at"]
+        if from_date_obj:
+            filters.append(["updated_at", ">=", from_date_obj])
+        if to_date_obj:
+            filters.append(["updated_at", "<=", to_date_obj])
+
+        # Get driver routes filtered by status and date range
+        all_driver_routes = db.get_by_filter(
+            driver_routes.table_name,
+            filters,
+            driver_routes.json_fields,
+            order=["-updated_at"]
         )
-
-        route_map = {route.get('route_id', ''): route for route in completed_routes}
 
         report_data = []
         for driver_route in all_driver_routes:
@@ -538,16 +559,11 @@ def export_truck_report_pdf():
                 continue
 
             route_id = driver_route.get('route_id', '')
-            route = route_map.get(route_id, {})
+            route = db.get(route_table.table_name, route_id, route_table.json_fields)
             if not route:
                 continue
 
             completed_at = route.get('completed_at')
-            if completed_at:
-                if from_date_obj and completed_at < from_date_obj:
-                    continue
-                if to_date_obj and completed_at > to_date_obj:
-                    continue
 
             truck = trucks_map.get(truckid, {})
             truck_number = truck.get('registration_number') or truck.get('truck_number') or truckid or 'N/A'
@@ -567,6 +583,8 @@ def export_truck_report_pdf():
             damage_status = "Yes" if damage_reported else "No"
             truck_status = truck.get('status', 'Active')
 
+            driver_route_id = driver_route.get('driver_route_id', '')
+
             report_data.append({
                 'truck_number': truck_number,
                 'date': completed_at.strftime('%d/%m/%Y') if completed_at else 'N/A',
@@ -579,7 +597,8 @@ def export_truck_report_pdf():
                 'damage_reported': damage_status,
                 'status': truck_status,
                 'truckid': truckid,
-                'route_id': route_id
+                'route_id': route_id,
+                'driver_route_id': driver_route_id
             })
 
         # Create PDF

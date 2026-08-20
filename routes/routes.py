@@ -16,6 +16,41 @@ from utils.logging import logger
 
 bp_route = Blueprint('bp_route', __name__)
 
+def calculate_distance_between_coords(lat1, lon1, lat2, lon2):
+    """Calculate distance in km between two coordinates using Haversine formula"""
+    from math import radians, cos, sin, asin, sqrt
+    try:
+        lat1, lon1, lat2, lon2 = map(radians, [float(lat1), float(lon1), float(lat2), float(lon2)])
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+        c = 2 * asin(sqrt(a))
+        r = 6371  # Radius of earth in kilometers
+        return c * r
+    except:
+        return 0
+
+def calculate_total_distance_from_coordinates(coordinates):
+    """Calculate total distance covered from a list of coordinates"""
+    if not coordinates or len(coordinates) < 2:
+        return 0.0
+
+    total_distance = 0.0
+    for i in range(len(coordinates) - 1):
+        coord1 = coordinates[i]
+        coord2 = coordinates[i + 1]
+
+        lat1 = coord1.get('latitude')
+        lon1 = coord1.get('longitude')
+        lat2 = coord2.get('latitude')
+        lon2 = coord2.get('longitude')
+
+        if lat1 and lon1 and lat2 and lon2:
+            distance = calculate_distance_between_coords(lat1, lon1, lat2, lon2)
+            total_distance += distance
+
+    return round(total_distance, 2)
+
 status_order = {
     "created": 1,
     "scheduled": 2,
@@ -288,6 +323,18 @@ def list_routes():
         role = user['role']
         status = request.args.get('status', '')
         key = request.args.get("key", "")
+        from_date_str = request.args.get('from_date', '')
+        to_date_str = request.args.get('to_date', '')
+
+        # Parse dates if provided (convert from Asia/Kolkata to UTC)
+        from_date = None
+        to_date = None
+        if from_date_str:
+            from_date_kolkata = datetime.strptime(from_date_str, "%Y-%m-%d").replace(tzinfo=pytz.timezone('Asia/Kolkata'))
+            from_date = from_date_kolkata.astimezone(pytz.UTC)
+        if to_date_str:
+            to_date_kolkata = datetime.strptime(to_date_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=pytz.timezone('Asia/Kolkata'))
+            to_date = to_date_kolkata.astimezone(pytz.UTC)
         route_id = key.split("~")[0]
         all_users = db.get_all(users.table_name, users.json_fields)
         users_map = {}
@@ -378,7 +425,7 @@ def list_routes():
             for r in routes:
                 truckid = r.get("truckid")
                 r["truck_details"] = truck_map.get(truckid, {})
-                
+
         elif role == 'marker':
             fetched_routes = db.get_by_filter(route_table.table_name, [
                 ["markerid", "=", userid],
@@ -403,6 +450,18 @@ def list_routes():
                 if sorted(route.get("driverid", [])) == sorted(drivers):
                     routes.append(route)
 
+        # Apply date filtering if dates are provided
+        if from_date or to_date:
+            filtered_routes = []
+            for route in routes:
+                created_at = route.get('created_at')
+                if created_at:
+                    if from_date and created_at < from_date:
+                        continue
+                    if to_date and created_at > to_date:
+                        continue
+                filtered_routes.append(route)
+            routes = filtered_routes
 
         payload.update({"message": "Routes listed successfully.",
                         "routes": routes,
@@ -592,6 +651,18 @@ def mark_route():
             
             route["checkpoints"] = route.get("checkpoints", []) + checkpoints
             route["paths"] = paths
+
+            # Calculate distance from marked routes coordinates if route is completed
+            if status == 'completed':
+                marked_paths = db.get_multi_by_key(marked_routes.table_name, paths, marked_routes.json_fields)
+                all_coordinates = []
+                for marked_path in marked_paths:
+                    all_coordinates.extend(marked_path.get('coordinates', []))
+
+                if all_coordinates:
+                    total_distance = calculate_total_distance_from_coordinates(all_coordinates)
+                    route["distance"] = total_distance
+
             db.create(
                 route_table.table_name,
                 routeid,
@@ -599,7 +670,7 @@ def mark_route():
                 route_table.exclude_from_indexes,
                 route_table.json_fields
             )
-        
+
         marked_paths = db.get_multi_by_key(marked_routes.table_name, paths, marked_routes.json_fields)
         paths_map = {}
         for path in marked_paths:
@@ -750,7 +821,7 @@ def route_by_id(routeid):
             "coordinates": merged_coordinates
         })
         driver_merged_coordinates = []
-        if role == 'driver':
+        if role in ["driver", "admin"]:
             driver_route = db.get(driver_routes.table_name, driver_route_id, driver_routes.json_fields)
 
             if driver_route:
@@ -1026,6 +1097,18 @@ def driver_travel():
             )
         
         driver_route["paths"] = paths
+
+        # Calculate distance from driver travelled path coordinates if route is completed
+        if status == 'completed':
+            driver_paths_for_distance = db.get_multi_by_key(driver_travelled_path.table_name, paths, driver_travelled_path.json_fields)
+            all_coordinates = []
+            for driver_path in driver_paths_for_distance:
+                all_coordinates.extend(driver_path.get('coordinates', []))
+
+            if all_coordinates:
+                total_distance = calculate_total_distance_from_coordinates(all_coordinates)
+                driver_route["actual_distance"] = total_distance
+
         db.create(
             driver_routes.table_name,
             driver_route_id,

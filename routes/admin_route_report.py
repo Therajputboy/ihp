@@ -42,12 +42,15 @@ def get_route_report_summary():
         from_date_str = request.args.get('from_date', '')
         to_date_str = request.args.get('to_date', '')
 
-        # Parse dates
-        from_date = datetime.strptime(from_date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC) if from_date_str else None
-        to_date = datetime.strptime(to_date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC) if to_date_str else None
-
-        if to_date:
-            to_date = to_date.replace(hour=23, minute=59, second=59)
+        # Parse dates (convert from Asia/Kolkata to UTC)
+        from_date = None
+        to_date = None
+        if from_date_str:
+            from_date_kolkata = datetime.strptime(from_date_str, "%Y-%m-%d").replace(tzinfo=pytz.timezone('Asia/Kolkata'))
+            from_date = from_date_kolkata.astimezone(pytz.UTC)
+        if to_date_str:
+            to_date_kolkata = datetime.strptime(to_date_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=pytz.timezone('Asia/Kolkata'))
+            to_date = to_date_kolkata.astimezone(pytz.UTC)
 
         # Get all routes
         all_routes = db.get_all(route_table.table_name, route_table.json_fields)
@@ -173,15 +176,36 @@ def get_route_report():
         to_date_str = request.args.get('to_date', '')
         route_id = request.args.get('route_id', '')
 
-        # Parse dates
-        from_date = datetime.strptime(from_date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC) if from_date_str else None
-        to_date = datetime.strptime(to_date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC) if to_date_str else None
+        # Parse dates (convert from Asia/Kolkata to UTC)
+        from_date = None
+        to_date = None
+        if from_date_str:
+            from_date_kolkata = datetime.strptime(from_date_str, "%Y-%m-%d").replace(tzinfo=pytz.timezone('Asia/Kolkata'))
+            from_date = from_date_kolkata.astimezone(pytz.UTC)
+        if to_date_str:
+            to_date_kolkata = datetime.strptime(to_date_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=pytz.timezone('Asia/Kolkata'))
+            to_date = to_date_kolkata.astimezone(pytz.UTC)
 
+        # Build filters for routes
+        route_filters = []
+
+        if route_id:
+            route_filters.append(["route_id", "=", route_id])
+        if from_date:
+            route_filters.append(["created_at", ">=", from_date])
         if to_date:
-            to_date = to_date.replace(hour=23, minute=59, second=59)
+            route_filters.append(["created_at", "<=", to_date])
 
-        # Get all routes
-        all_routes = db.get_all(route_table.table_name, route_table.json_fields)
+        # Get routes filtered by route_id and date range, or all routes if no filters
+        if route_filters:
+            all_routes = db.get_by_filter(
+                route_table.table_name,
+                route_filters,
+                route_table.json_fields,
+                order=["-created_at"]
+            )
+        else:
+            all_routes = db.get_all(route_table.table_name, route_table.json_fields)
 
         # Get all driver routes for trip information (newest first to get latest status)
         all_driver_routes = db.get_by_filter(
@@ -233,54 +257,71 @@ def get_route_report():
         total_trips = 0
         route_ids_set = set()
 
-        for route in all_routes:
-            route_id_key = route.get('route_id', '')
+        # If route_id is provided, show individual driver routes (paths travelled)
+        if route_id:
+            # Get all driver routes for this specific route
+            driver_routes_for_route = [dr for dr in all_driver_routes if dr.get('route_id', '') == route_id]
 
-            # Filter by specific route if provided
-            if route_id and route_id_key != route_id:
-                continue
+            for driver_route in driver_routes_for_route:
+                route_name = None
+                for route in all_routes:
+                    if route.get('route_id', '') == route_id:
+                        route_name = route.get('route_name', 'N/A')
+                        break
 
-            # Filter by date range
-            created_at = route.get('created_at')
-            if created_at:
-                if from_date and created_at < from_date:
-                    continue
-                if to_date and created_at > to_date:
-                    continue
+                status = driver_route.get('status', 'Unknown').capitalize()
+                distance = driver_route.get('actual_distance', 0) or 0
+                total_distance += distance
 
-            route_ids_set.add(route_id_key)
+                report_data.append({
+                    'route_name': route_name,
+                    'driver_route_id': driver_route.get('driver_route_id', ''),
+                    'status': status,
+                    'distance_km': round(float(distance) if distance else 0, 2),
+                    'updated_at': driver_route.get('updated_at'),
+                    'driverid': driver_route.get('driverid', [])
+                })
 
-            # Get trip information
-            trips_info = route_trips_map.get(route_id_key, {
-                'total_trips': 0,
-                'completed_trips': 0,
-                'in_progress_trips': 0
-            })
+            total_trips = len(report_data)
+            route_ids_set.add(route_id)
+        else:
+            # Show route summary (all routes with aggregated trip info)
+            for route in all_routes:
+                route_id_key = route.get('route_id', '')
 
-            total_trips_count = trips_info.get('total_trips', 0)
-            completed_trips_count = trips_info.get('completed_trips', 0)
-            in_progress_trips_count = trips_info.get('in_progress_trips', 0)
+                route_ids_set.add(route_id_key)
 
-            # Get distance information
-            distance = route.get('distance', 0)
-            total_distance += distance if distance else 0
+                # Get trip information
+                trips_info = route_trips_map.get(route_id_key, {
+                    'total_trips': 0,
+                    'completed_trips': 0,
+                    'in_progress_trips': 0
+                })
 
-            # Get route status from latest driver route
-            route_status = trips_info.get('latest_status', 'Active').capitalize()
+                total_trips_count = trips_info.get('total_trips', 0)
+                completed_trips_count = trips_info.get('completed_trips', 0)
+                in_progress_trips_count = trips_info.get('in_progress_trips', 0)
 
-            total_trips += total_trips_count
+                # Get distance information
+                distance = route.get('distance', 0)
+                total_distance += distance if distance else 0
 
-            report_data.append({
-                'route_name': route.get('route_name', 'N/A'),
-                'total_distance_km': round(float(distance) if distance else 0, 2),
-                'total_trips': total_trips_count,
-                'completed_trips': completed_trips_count,
-                'in_progress_trips': in_progress_trips_count,
-                'status': route_status,
-                'route_id': route_id_key,
-                'state': route.get('state', ''),
-                'city': route.get('city', '')
-            })
+                # Get route status from latest driver route
+                route_status = trips_info.get('latest_status', 'Active').capitalize()
+
+                total_trips += total_trips_count
+
+                report_data.append({
+                    'route_name': route.get('route_name', 'N/A'),
+                    'total_distance_km': round(float(distance) if distance else 0, 2),
+                    'total_trips': total_trips_count,
+                    'completed_trips': completed_trips_count,
+                    'in_progress_trips': in_progress_trips_count,
+                    'status': route_status,
+                    'route_id': route_id_key,
+                    'state': route.get('state', ''),
+                    'city': route.get('city', '')
+                })
 
         payload.update({
             "message": "Route report fetched successfully.",
@@ -335,7 +376,27 @@ def export_route_report_excel():
         if to_date_obj:
             to_date_obj = to_date_obj.replace(hour=23, minute=59, second=59)
 
-        all_routes = db.get_all(route_table.table_name, route_table.json_fields)
+        # Build filters for routes
+        route_filters = []
+
+        if route_id:
+            route_filters.append(["route_id", "=", route_id])
+        if from_date:
+            route_filters.append(["created_at", ">=", from_date])
+        if to_date:
+            route_filters.append(["created_at", "<=", to_date])
+
+        # Get routes filtered by route_id and date range, or all routes if no filters
+        if route_filters:
+            all_routes = db.get_by_filter(
+                route_table.table_name,
+                route_filters,
+                route_table.json_fields,
+                order=["-created_at"]
+            )
+        else:
+            all_routes = db.get_all(route_table.table_name, route_table.json_fields)
+
         all_driver_routes = db.get_by_filter(
             driver_routes.table_name,
             [["status", "IN", ["completed", "active", "scheduled"]]],
@@ -531,7 +592,27 @@ def export_route_report_pdf():
         if to_date_obj:
             to_date_obj = to_date_obj.replace(hour=23, minute=59, second=59)
 
-        all_routes = db.get_all(route_table.table_name, route_table.json_fields)
+        # Build filters for routes
+        route_filters = []
+
+        if route_id:
+            route_filters.append(["route_id", "=", route_id])
+        if from_date:
+            route_filters.append(["created_at", ">=", from_date])
+        if to_date:
+            route_filters.append(["created_at", "<=", to_date])
+
+        # Get routes filtered by route_id and date range, or all routes if no filters
+        if route_filters:
+            all_routes = db.get_by_filter(
+                route_table.table_name,
+                route_filters,
+                route_table.json_fields,
+                order=["-created_at"]
+            )
+        else:
+            all_routes = db.get_all(route_table.table_name, route_table.json_fields)
+
         all_driver_routes = db.get_by_filter(
             driver_routes.table_name,
             [["status", "IN", ["completed", "active", "scheduled"]]],

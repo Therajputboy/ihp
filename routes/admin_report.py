@@ -57,12 +57,15 @@ def parse_datetime(date_str):
 
 def build_driver_report_data(from_date_str, to_date_str, driver_id):
     """Helper function to build driver report data"""
-    # Parse dates
-    from_date = datetime.strptime(from_date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC) if from_date_str else None
-    to_date = datetime.strptime(to_date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC) if to_date_str else None
-
-    if to_date:
-        to_date = to_date.replace(hour=23, minute=59, second=59)
+    # Parse dates (convert from Asia/Kolkata to UTC)
+    from_date = None
+    to_date = None
+    if from_date_str:
+        from_date_kolkata = datetime.strptime(from_date_str, "%Y-%m-%d").replace(tzinfo=pytz.timezone('Asia/Kolkata'))
+        from_date = from_date_kolkata.astimezone(pytz.UTC)
+    if to_date_str:
+        to_date_kolkata = datetime.strptime(to_date_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=pytz.timezone('Asia/Kolkata'))
+        to_date = to_date_kolkata.astimezone(pytz.UTC)
 
     # Get all users and trucks for mapping
     all_users = db.get_all(users.table_name, users.json_fields)
@@ -71,52 +74,52 @@ def build_driver_report_data(from_date_str, to_date_str, driver_id):
     users_map = {u.get('userid', ''): u for u in all_users}
     trucks_map = {t.get('truckid', ''): t for t in all_trucks}
 
-    # Get completed routes with driver assignments
-    completed_routes = db.get_by_filter(
-        route_table.table_name,
-        [["status", "=", "completed"], ["approved", "=", 1]],
-        route_table.json_fields,
-        order=["-created_at"]
-    )
+    # Build filters for driver routes
+    # Required Firestore Index:
+    # Collection: DriverRoutes
+    # Fields:
+    #   - status (Ascending)
+    #   - updated_at (Descending)
+    filters = [["status", "IN", ["completed", "active"]]]
 
-    # Get all driver routes
-    all_driver_routes = db.get_all(
+    if from_date:
+        filters.append(["updated_at", ">=", from_date])
+    if to_date:
+        filters.append(["updated_at", "<=", to_date])
+
+    # Get driver routes filtered by status and date range
+    all_driver_routes = db.get_by_filter(
         driver_routes.table_name,
-        driver_routes.json_fields
+        filters,
+        driver_routes.json_fields,
+        order=["-updated_at"]
     )
-
-    # Build route map
-    route_map = {dr.get('route_id', ''): dr for dr in all_driver_routes}
 
     # Build report data and calculate statistics
     report_data = []
     total_routes = 0
     total_diversions = 0
     drivers_set = set()
+    processed_routes = set()
 
-    for route in completed_routes:
-        route_id = route.get('route_id', '')
-        driver_route = route_map.get(route_id, {})
+    for driver_route in all_driver_routes:
+        route_id = driver_route.get('route_id', '')
 
-        if not driver_route:
+        # Get route data from routes table
+        route = db.get(route_table.table_name, route_id, route_table.json_fields)
+        if not route:
             continue
 
         driverids = driver_route.get('driverid', [])
         if not isinstance(driverids, list):
             driverids = [driverids]
 
-        # Filter by date range
-        completed_at = route.get('completed_at')
-        if completed_at:
-            if from_date and completed_at < from_date:
-                continue
-            if to_date and completed_at > to_date:
-                continue
-
-        # Update statistics (before driver filter to get accurate totals)
-        total_routes += 1
-        drivers_set.update(driverids)
-        total_diversions += route.get('diversions', 0)
+        # Update statistics (only count each route once)
+        if route_id not in processed_routes:
+            total_routes += 1
+            drivers_set.update(driverids)
+            total_diversions += route.get('diversions', 0)
+            processed_routes.add(route_id)
 
         # Filter by specific driver if provided (for report data only)
         if driver_id and driver_id not in driverids:
@@ -153,6 +156,8 @@ def build_driver_report_data(from_date_str, to_date_str, driver_id):
         # Determine diversion status
         has_diversion = "Yes" if route.get('diversions', 0) > 0 else "No"
 
+        driver_route_id = driver_route.get('driver_route_id', '')
+
         report_data.append({
             'driver_name': ', '.join(driver_names),
             'assigned_route': route.get('route_name', 'N/A'),
@@ -166,6 +171,7 @@ def build_driver_report_data(from_date_str, to_date_str, driver_id):
             'diversion_count': route.get('diversions', 0),
             'status': driver_route.get('status', 'Unknown').capitalize(),
             'route_id': route_id,
+            'driver_route_id': driver_route_id,
             'driver_ids': driverids
         })
 
